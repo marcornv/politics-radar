@@ -39,3 +39,11 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local API cache
+/.cache
+
+!.env.example
+
+# API keys saved from the Configurações screen
+/.config
