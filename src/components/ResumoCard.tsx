@@ -23,8 +23,8 @@ async function pedirResumo(casa: Casa, id: string): Promise<Estado> {
 }
 
 /**
- * Plain-language summary from Claude. Shown only when the server has
- * credentials; generated on first open and cached on disk afterwards.
+ * Plain-language summary from the AI chosen in Configurações. Shown only when
+ * one is configured; generated on first open and cached on disk afterwards.
  */
 export function ResumoCard({
   casa,
@@ -58,7 +58,7 @@ export function ResumoCard({
       <div className="rounded-lg border border-dashed border-line p-4 text-[13px] text-ink-2">
         <p className="font-medium text-ink">Resumo em linguagem simples desativado</p>
         <p className="mt-1">
-          Para gerar resumos com o Claude, adicione sua chave da Anthropic em{" "}
+          Para gerar resumos, configure uma IA (Anthropic, OpenAI, Groq ou um modelo local) em{" "}
           <Link href="/configuracoes" className="text-phosphor hover:underline">
             Configurações
           </Link>
@@ -73,7 +73,9 @@ export function ResumoCard({
       <div className="mb-2 flex items-center gap-2">
         <h3 className="font-display text-[14px] font-semibold text-phosphor">Em linguagem simples</h3>
         {estado.tipo === "ok" && (
-          <span className="ml-auto text-[11px] text-muted">gerado por IA a partir dos dados oficiais</span>
+          <span className="ml-auto text-[11px] text-muted">
+            gerado por IA (<code>{estado.resumo.modelo}</code>) a partir dos dados oficiais
+          </span>
         )}
       </div>
 

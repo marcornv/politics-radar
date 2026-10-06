@@ -3,7 +3,7 @@
 import { useActionState, useState } from "react";
 import { acaoChave, type EstadoChave } from "@/app/configuracoes/actions";
 
-const TOM = {
+export const TOM = {
   ok: "text-phosphor",
   aviso: "text-amber",
   erro: "text-[color:var(--v-nao)]",

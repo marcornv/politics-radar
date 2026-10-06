@@ -8,7 +8,7 @@ Painel local para acompanhar o Congresso Nacional (Câmara dos Deputados e Senad
 - **Agenda da semana**: sessões de plenário e reuniões de comissões das duas Casas, com as pautas.
 - **Perfil de cada parlamentar**: dados pessoais e de contato, votos nominais com participação e fidelidade partidária, projetos de autoria, emendas a projetos, emendas ao orçamento, gastos da cota parlamentar dos últimos 12 meses, comissões, frentes e filiações. Clique em qualquer assento ou nome para abrir.
 - **Emendas**: a projetos (Senado e comissões mistas do Congresso, com autor e decisão) e ao orçamento (Portal da Transparência, com autor, destino e quanto foi pago).
-- **Resumo em linguagem simples** (opcional): gerado pelo Claude a partir da ementa e da tramitação, guardado em cache.
+- **Resumo em linguagem simples** (opcional): gerado por IA (Claude, GPT, Groq ou um modelo rodando no seu computador) a partir da ementa e da tramitação, guardado em cache.
 
 ## Rodando
 
@@ -21,13 +21,16 @@ npm run dev                  # http://localhost:3000
 
 Para uso diário, `npm run build && npm start` é mais rápido.
 
-Por padrão o Radar só aceita conexões do próprio computador (`127.0.0.1`). Para abrir pelo celular ou outro aparelho da mesma rede, use `npm run dev:rede` ou `npm run start:rede` e acesse pelo IP da máquina. Faça isso só em redes de confiança: quem estiver na rede consegue gerar resumos cobrados na sua conta da Anthropic.
+Por padrão o Radar só aceita conexões do próprio computador (`127.0.0.1`). Para abrir pelo celular ou outro aparelho da mesma rede, use `npm run dev:rede` ou `npm run start:rede` e acesse pelo IP da máquina. Faça isso só em redes de confiança: quem estiver na rede consegue gerar resumos cobrados na sua conta de IA.
 
 ### Chaves opcionais
 
-Dois recursos precisam de chave: os resumos em linguagem simples (Anthropic) e as emendas ao orçamento (Portal da Transparência, gratuita). Configure pela própria ferramenta, em **Configurações** no menu: a tela explica como conseguir cada chave, testa antes de salvar e guarda em `.config/chaves.json` (fora do git, legível só pelo seu usuário). A edição só é permitida no próprio computador (`localhost`), não por outros aparelhos da rede.
+Dois recursos dependem de serviços externos, e tudo se configura pela própria ferramenta, em **Configurações** no menu. A tela explica como conseguir cada chave, testa antes de salvar e guarda em `.config/chaves.json` (fora do git, legível só pelo seu usuário). A edição só é permitida no próprio computador (`localhost`), não por outros aparelhos da rede.
 
-Quem preferir pode usar variáveis de ambiente em `.env.local` (veja `.env.example`); uma chave salva pela tela tem prioridade.
+- **Resumos em linguagem simples**: escolha entre Anthropic (Claude), OpenAI, Groq (tem plano gratuito) ou qualquer servidor compatível com a API da OpenAI. Com o [Ollama](https://ollama.com) ou o LM Studio dá para rodar um modelo no seu computador, sem custo e sem enviar nada para fora. Com mais de uma configurada, a tela tem um seletor de qual usar.
+- **Emendas ao orçamento**: chave gratuita do Portal da Transparência.
+
+Quem preferir pode usar variáveis de ambiente em `.env.local` (veja `.env.example`, que também mostra como trocar o modelo de cada provedor); uma configuração salva pela tela tem prioridade.
 
 ## Como funciona
 
@@ -52,7 +55,7 @@ Quem preferir pode usar variáveis de ambiente em `.env.local` (veja `.env.examp
 ## Segurança
 
 - As chaves ficam em `.config/chaves.json` (modo 600) ou `.env.local`, ambos fora do git. Nunca faça commit delas.
-- O Radar foi feito para rodar na sua máquina, não como site público: não há login, e qualquer pessoa que alcance o servidor pode gerar resumos com a sua chave.
+- O Radar foi feito para rodar na sua máquina, não como site público: não há login, e qualquer pessoa que alcance o servidor pode gerar resumos com a sua chave de IA.
 - A rota de resumo recusa pedidos vindos de outros sites (CSRF e DNS rebinding), e as chaves só podem ser alteradas acessando por `localhost`.
 
 Encontrou uma falha? Abra uma issue sem detalhes sensíveis ou use o [reporte privado de vulnerabilidades](https://docs.github.com/pt/code-security/security-advisories/guidance-on-reporting-and-writing-information-about-vulnerabilities/privately-reporting-a-security-vulnerability) do GitHub.

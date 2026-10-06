@@ -1,5 +1,5 @@
-import Anthropic from "@anthropic-ai/sdk";
 import { ehMesmaOrigem } from "@/lib/acesso";
+import { ErroIA, NOME_PROVEDOR, provedorAtivo } from "@/lib/ia";
 import { proposicao } from "@/lib/legislativo";
 import { resumir, resumoDisponivel } from "@/lib/resumo";
 import { isCasa } from "@/lib/types";
@@ -10,7 +10,7 @@ export async function POST(req: Request, ctx: RouteContext<"/api/resumo/[casa]/[
   const { casa, id } = await ctx.params;
   if (!isCasa(casa) || !/^m?\d+$/.test(id)) return Response.json({ erro: "Proposição inválida." }, { status: 404 });
   if (!resumoDisponivel()) {
-    return Response.json({ erro: "Resumo por IA desativado: adicione a chave da Anthropic em Configurações." }, { status: 503 });
+    return Response.json({ erro: "Resumo por IA desativado: configure uma IA em Configurações." }, { status: 503 });
   }
 
   const p = await proposicao(casa, id).catch(() => null);
@@ -20,10 +20,10 @@ export async function POST(req: Request, ctx: RouteContext<"/api/resumo/[casa]/[
     return Response.json(await resumir(p));
   } catch (e) {
     let erro = "Não foi possível gerar o resumo agora.";
-    if (e instanceof Anthropic.AuthenticationError) erro = "A chave da Anthropic foi recusada. Troque-a em Configurações.";
-    else if (e instanceof Anthropic.RateLimitError) erro = "Limite de uso da API atingido. Tente em alguns minutos.";
-    else if (e instanceof Anthropic.APIError) erro = `A API do Claude respondeu ${e.status}.`;
-    else if (e instanceof Error) erro = e.message;
+    const nome = NOME_PROVEDOR[provedorAtivo() ?? "anthropic"];
+    if (e instanceof ErroIA && e.tipo === "chave") erro = `A chave da ${nome} foi recusada. Troque-a em Configurações.`;
+    else if (e instanceof ErroIA && e.tipo === "limite") erro = `Limite de uso da ${nome} atingido. Tente em alguns minutos.`;
+    else if (e instanceof ErroIA) erro = e.message;
     return Response.json({ erro }, { status: 502 });
   }
 }

@@ -1,6 +1,5 @@
-import Anthropic from "@anthropic-ai/sdk";
 import { cached, HOUR } from "./cache";
-import { chave } from "./config";
+import { ErroIA, gerarJson, modeloDe, provedorAtivo } from "./ia";
 import type { ProposicaoDetalhe } from "./types";
 
 export interface Resumo {
@@ -16,10 +15,7 @@ export interface Resumo {
   geradoEm: string;
 }
 
-export const resumoDisponivel = () =>
-  !!(chave("ANTHROPIC_API_KEY") || process.env.ANTHROPIC_AUTH_TOKEN || process.env.ANTHROPIC_PROFILE);
-
-const MODEL = process.env.CLAUDE_MODEL || "claude-opus-5-5";
+export const resumoDisponivel = () => provedorAtivo() !== null;
 
 const SYSTEM = `Você explica proposições do Congresso brasileiro para um cidadão bem informado, mas que não é jurista.
 Escreva em português do Brasil, linguagem simples e direta, sem juridiquês e sem opinião política.
@@ -65,24 +61,27 @@ function contexto(p: ProposicaoDetalhe): string {
     .join("\n");
 }
 
-/** Plain-language summary of a bill, generated once and cached for a week. */
-export function resumir(p: ProposicaoDetalhe): Promise<Resumo> {
-  return cached(`resumo:${MODEL}:${p.casa}:${p.id}:${p.situacao}`, 7 * 24 * HOUR, async () => {
-    const apiKey = chave("ANTHROPIC_API_KEY");
-    const client = apiKey ? new Anthropic({ apiKey }) : new Anthropic();
-    const res = await client.beta.messages.create({
-      model: MODEL,
-      max_tokens: 4000,
-      betas: ["server-side-fallback-2026-07-01"],
-      fallbacks: "default",
-      output_config: { effort: "low", format: { type: "json_schema", schema: SCHEMA } },
+const texto = (v: unknown): v is string => typeof v === "string" && v.trim() !== "";
+
+/** Providers without strict structured outputs can drift from the schema; reject anything the card can't show. */
+function validar(d: unknown): Omit<Resumo, "modelo" | "geradoEm"> {
+  const r = d as Partial<Record<keyof Resumo, unknown>> | null;
+  if (r && texto(r.sintese) && texto(r.afetados) && texto(r.proximoPasso) && Array.isArray(r.mudancas) && r.mudancas.every(texto)) {
+    return { sintese: r.sintese, mudancas: r.mudancas, afetados: r.afetados, proximoPasso: r.proximoPasso };
+  }
+  throw new ErroIA("outro", "A IA devolveu um resumo incompleto. Tente de novo ou use outro modelo.");
+}
+
+/** Plain-language summary of a bill, generated once per provider and model and cached for a week. */
+export async function resumir(p: ProposicaoDetalhe): Promise<Resumo> {
+  const provedor = provedorAtivo();
+  if (!provedor) throw new ErroIA("outro", "Nenhuma IA configurada.");
+  return cached(`resumo:${provedor}:${modeloDe(provedor)}:${p.casa}:${p.id}:${p.situacao}`, 7 * 24 * HOUR, async () => {
+    const { dados, modelo } = await gerarJson(provedor, {
       system: SYSTEM,
-      messages: [{ role: "user", content: `Resuma esta proposição:\n\n${contexto(p)}` }],
+      user: `Resuma esta proposição:\n\n${contexto(p)}`,
+      schema: SCHEMA,
     });
-    if (res.stop_reason === "refusal") throw new Error("O modelo não gerou resumo para esta proposição.");
-    const text = res.content.find((b) => b.type === "text");
-    if (!text || text.type !== "text") throw new Error("Resposta sem texto.");
-    const data = JSON.parse(text.text) as Omit<Resumo, "modelo" | "geradoEm">;
-    return { ...data, modelo: res.model, geradoEm: new Date().toISOString() };
+    return { ...validar(dados), modelo, geradoEm: new Date().toISOString() };
   });
 }
