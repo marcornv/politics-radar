@@ -2,6 +2,8 @@
 
 Painel local para acompanhar o Congresso Nacional (Câmara dos Deputados e Senado Federal) usando os dados abertos oficiais.
 
+![Painel inicial com a composição da Câmara e do Senado, últimas votações e resumo da semana](docs/screenshots/painel.png)
+
 - **Composição**: hemiciclo por partido, bancadas por estado e lista de parlamentares, com filtros cruzados.
 - **Votações**: realizadas (7, 30 ou 90 dias) e previstas (pautas das próximas sessões). Cada votação mostra placar, hemiciclo colorido pelo voto, orientação e fidelidade de cada bancada e o voto nominal de cada parlamentar.
 - **Tramitação**: proposições com movimento recente agrupadas pela etapa em que estão (aguardando relator, em análise, pronta para pauta, em pauta), filtráveis por tipo, comissão e tema. Cada proposição tem ficha com fase, relator, linha do tempo e votações.
@@ -9,6 +11,17 @@ Painel local para acompanhar o Congresso Nacional (Câmara dos Deputados e Senad
 - **Perfil de cada parlamentar**: dados pessoais e de contato, votos nominais com participação e fidelidade partidária, projetos de autoria, emendas a projetos, emendas ao orçamento, gastos da cota parlamentar dos últimos 12 meses, comissões, frentes e filiações. Clique em qualquer assento ou nome para abrir.
 - **Emendas**: a projetos (Senado e comissões mistas do Congresso, com autor e decisão) e ao orçamento (Portal da Transparência, com autor, destino e quanto foi pago).
 - **Resumo em linguagem simples** (opcional): gerado por IA (Claude, GPT, Groq ou um modelo rodando no seu computador) a partir da ementa e da tramitação, guardado em cache.
+
+## Telas
+
+| | |
+|---|---|
+| ![Composição da Câmara: hemiciclo por partido e lista de bancadas](docs/screenshots/composicao.png) | ![Votação nominal: placar e hemiciclo colorido pelo voto de cada deputado](docs/screenshots/votacao.png) |
+| **Composição** | **Votação** |
+| ![Tramitação: proposições agrupadas pela etapa em que estão](docs/screenshots/tramitacao.png) | ![Perfil de deputada: dados de contato, participação e fidelidade partidária](docs/screenshots/parlamentar.png) |
+| **Tramitação** | **Perfil de parlamentar** |
+| ![Agenda da semana com sessões e reuniões das duas Casas](docs/screenshots/agenda.png) | ![Emendas a projetos com autor e decisão](docs/screenshots/emendas.png) |
+| **Agenda da semana** | **Emendas** |
 
 ## Rodando
 
