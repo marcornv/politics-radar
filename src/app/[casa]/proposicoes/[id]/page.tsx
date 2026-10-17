@@ -75,7 +75,7 @@ export default async function ProposicaoPage({ params }: PageProps<"/[casa]/prop
             <FaseTrack fase={p.fase} situacao={p.situacao} />
           </section>
 
-          <ResumoCard key={p.id} casa={casa} id={p.id} disponivel={resumoDisponivel()} />
+          <ResumoCard key={p.id} casa={casa} id={p.id} disponivel={await resumoDisponivel()} />
 
           {emendas.length > 0 && (
             <section>

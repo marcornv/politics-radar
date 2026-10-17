@@ -74,7 +74,7 @@ export default async function VotacaoPage({ params }: PageProps<"/[casa]/votacoe
 
       {prop && (
         <div className="mb-6">
-          <ResumoCard key={prop.id} casa={casa} id={prop.id} disponivel={resumoDisponivel()} />
+          <ResumoCard key={prop.id} casa={casa} id={prop.id} disponivel={await resumoDisponivel()} />
         </div>
       )}
 

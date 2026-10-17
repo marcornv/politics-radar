@@ -1,6 +1,13 @@
 import "server-only";
-import Anthropic from "@anthropic-ai/sdk";
-import { chave, type NomeChave } from "./config";
+import type { NomeChave } from "./config";
+import type { Resumo } from "./resumo";
+import type { ProposicaoDetalhe } from "./types";
+
+/**
+ * Client for the AI service in `ia/` (Python). Provider choice, prompts, provider calls and the
+ * summary cache all live there; this file only talks to it over HTTP on this machine.
+ */
+const IA_URL = (process.env.IA_URL || "http://127.0.0.1:8787").replace(/\/+$/, "");
 
 /** AI providers that can write the plain-language summaries. */
 export const PROVEDORES = ["anthropic", "openai", "groq", "compativel"] as const;
@@ -23,191 +30,60 @@ export const CHAVE_DO_PROVEDOR: Record<Provedor, NomeChave> = {
   compativel: "COMPATIVEL_API_KEY",
 };
 
-const BASE: Record<"openai" | "groq", string> = {
-  openai: "https://api.openai.com/v1",
-  groq: "https://api.groq.com/openai/v1",
-};
+/** Failure the API route can show as is: the service already wrote the message in Portuguese. */
+export class ErroIA extends Error {}
 
-export function modeloDe(p: Provedor): string {
-  if (p === "anthropic") return process.env.CLAUDE_MODEL || "claude-opus-5-5";
-  if (p === "openai") return process.env.OPENAI_MODEL || "gpt-6-luna";
-  if (p === "groq") return process.env.GROQ_MODEL || "openai/gpt-oss-120b";
-  return chave("COMPATIVEL_MODELO") ?? "";
+export interface StatusIA {
+  /** The provider chosen in Configurações, or the first configured one if that choice is gone. */
+  ativo: Provedor | null;
+  configurados: { id: Provedor; nome: string; modelo: string }[];
+  compativel: boolean;
+  /** Claude Code / `ant` login on this machine, used when no Anthropic key is set. */
+  loginClaude: boolean;
 }
 
-/** Claude Code / `ant` login on this machine, used when no Anthropic key is set. */
-export const loginClaude = () => !!(process.env.ANTHROPIC_AUTH_TOKEN || process.env.ANTHROPIC_PROFILE);
-
-export function configurado(p: Provedor): boolean {
-  if (p === "anthropic") return !!chave("ANTHROPIC_API_KEY") || loginClaude();
-  if (p === "compativel") return !!(chave("COMPATIVEL_URL") && chave("COMPATIVEL_MODELO"));
-  return !!chave(CHAVE_DO_PROVEDOR[p]);
-}
-
-export const provedoresConfigurados = () => PROVEDORES.filter(configurado);
-
-/** The provider chosen in Configurações, or the first configured one if that choice is gone. */
-export function provedorAtivo(): Provedor | null {
-  const escolhido = chave("IA_PROVEDOR");
-  if (ehProvedor(escolhido) && configurado(escolhido)) return escolhido;
-  return provedoresConfigurados()[0] ?? null;
-}
-
-/** Provider failure in a shape the API route can explain, whatever SDK or endpoint produced it. */
-export class ErroIA extends Error {
-  constructor(
-    public tipo: "chave" | "limite" | "outro",
-    msg: string,
-    public status?: number,
-  ) {
-    super(msg);
-  }
-}
-
-interface Pedido {
-  system: string;
-  user: string;
-  schema: Record<string, unknown>;
-}
-
-export interface Gerado {
-  dados: unknown;
-  modelo: string;
-}
-
-export function gerarJson(p: Provedor, pedido: Pedido): Promise<Gerado> {
-  return p === "anthropic" ? viaAnthropic(pedido) : viaOpenAI(p, pedido);
-}
-
-/** Parses the model's JSON, tolerating text around it (local models often add a preamble or a <think> block). */
-function lerJson(bruto: string | null | undefined): unknown {
-  const texto = bruto
-    ?.replace(/<think>[\s\S]*?<\/think>/g, "")
-    .replace(/```(?:json)?/g, "")
-    .trim();
-  if (texto) {
-    try {
-      return JSON.parse(texto);
-    } catch {
-      const i = texto.indexOf("{");
-      const f = texto.lastIndexOf("}");
-      if (i >= 0 && f > i) {
-        try {
-          return JSON.parse(texto.slice(i, f + 1));
-        } catch {}
-      }
-    }
-  }
-  throw new ErroIA("outro", "A IA devolveu uma resposta fora do formato esperado.");
-}
-
-const RECUSA = "O modelo não gerou resumo para esta proposição.";
-
-async function viaAnthropic({ system, user, schema }: Pedido): Promise<Gerado> {
-  const apiKey = chave("ANTHROPIC_API_KEY");
-  const client = apiKey ? new Anthropic({ apiKey }) : new Anthropic();
+/** What the AI service sees right now, or null when it isn't running. */
+export async function statusIA(): Promise<StatusIA | null> {
   try {
-    const res = await client.beta.messages.create({
-      model: modeloDe("anthropic"),
-      max_tokens: 4000,
-      betas: ["server-side-fallback-2026-07-01"],
-      fallbacks: "default",
-      output_config: { effort: "low", format: { type: "json_schema", schema } },
-      system,
-      messages: [{ role: "user", content: user }],
+    const r = await fetch(`${IA_URL}/status`, { signal: AbortSignal.timeout(2_000), cache: "no-store" });
+    return r.ok ? ((await r.json()) as StatusIA) : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function resumir(p: ProposicaoDetalhe): Promise<Resumo> {
+  let r: Response;
+  try {
+    r = await fetch(`${IA_URL}/resumo`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(p),
+      // Local models can take up to two minutes, plus a retry without structured outputs.
+      signal: AbortSignal.timeout(300_000),
+      cache: "no-store",
     });
-    if (res.stop_reason === "refusal") throw new ErroIA("outro", RECUSA);
-    const text = res.content.find((b) => b.type === "text");
-    return { dados: lerJson(text?.type === "text" ? text.text : null), modelo: res.model };
-  } catch (e) {
-    if (e instanceof Anthropic.AuthenticationError || e instanceof Anthropic.PermissionDeniedError) {
-      throw new ErroIA("chave", "Chave recusada.", e.status);
-    }
-    if (e instanceof Anthropic.RateLimitError) throw new ErroIA("limite", "Limite de uso atingido.", 429);
-    if (e instanceof Anthropic.APIError) throw new ErroIA("outro", `A Anthropic respondeu com erro ${e.status}.`, e.status);
-    throw e;
+  } catch {
+    throw new ErroIA("O serviço de IA não está rodando. Inicie o Radar com npm run dev.");
   }
-}
-
-function baseDe(p: Exclude<Provedor, "anthropic">, url?: string): string {
-  return p === "compativel" ? (url ?? chave("COMPATIVEL_URL") ?? "").replace(/\/+$/, "") : BASE[p];
-}
-
-function cabecalhos(chaveApi: string | undefined): Record<string, string> {
-  return { "Content-Type": "application/json", ...(chaveApi ? { Authorization: `Bearer ${chaveApi}` } : {}) };
-}
-
-type Completion = {
-  model?: string;
-  choices?: { message?: { content?: string | null; refusal?: string | null } }[];
-};
-
-/** OpenAI, Groq and anything that speaks the OpenAI Chat Completions API (Ollama, LM Studio, OpenRouter). */
-async function viaOpenAI(p: Exclude<Provedor, "anthropic">, { system, user, schema }: Pedido): Promise<Gerado> {
-  const modelo = modeloDe(p);
-  const pedir = async (formato: object, sistema: string) => {
-    try {
-      return await fetch(`${baseDe(p)}/chat/completions`, {
-        method: "POST",
-        headers: cabecalhos(chave(CHAVE_DO_PROVEDOR[p])),
-        body: JSON.stringify({
-          model: modelo,
-          messages: [
-            { role: "system", content: sistema },
-            { role: "user", content: user },
-          ],
-          response_format: formato,
-          // Reasoning models spend part of the budget thinking; local servers only know the older name.
-          ...(p === "compativel" ? { max_tokens: 4000 } : { max_completion_tokens: 8000 }),
-        }),
-        // Local models can be slow on modest hardware.
-        signal: AbortSignal.timeout(p === "compativel" ? 120_000 : 60_000),
-        cache: "no-store",
-      });
-    } catch {
-      throw new ErroIA("outro", `Não deu para falar com a ${NOME_PROVEDOR[p]} agora.`);
-    }
-  };
-
-  let r = await pedir({ type: "json_schema", json_schema: { name: "resumo", strict: true, schema } }, system);
-  // Models without structured outputs reject json_schema; fall back to plain JSON mode with the schema in the prompt.
-  if (r.status === 400) {
-    r = await pedir(
-      { type: "json_object" },
-      `${system}\n\nResponda apenas com um objeto JSON que siga este JSON Schema:\n${JSON.stringify(schema)}`,
-    );
-  }
-  if (r.status === 401 || r.status === 403) throw new ErroIA("chave", "Chave recusada.", r.status);
-  if (r.status === 429) throw new ErroIA("limite", "Limite de uso atingido.", 429);
-  if (!r.ok) throw new ErroIA("outro", `A ${NOME_PROVEDOR[p]} respondeu com erro ${r.status}.`, r.status);
-
-  const j = (await r.json()) as Completion;
-  const msg = j.choices?.[0]?.message;
-  if (msg?.refusal) throw new ErroIA("outro", RECUSA);
-  return { dados: lerJson(msg?.content), modelo: j.model || modelo };
+  const j = await r.json().catch(() => null);
+  if (!r.ok) throw new ErroIA(j?.erro ?? "Não foi possível gerar o resumo agora.");
+  return j as Resumo;
 }
 
 export type Teste = "valida" | "recusada" | "indisponivel";
 
-/** Checks credentials without spending tokens: lists models. */
+/** Checks credentials without spending tokens. Reports "indisponivel" when the AI service itself is down. */
 export async function testarConexao(p: Provedor, cred: { chave?: string; url?: string }): Promise<Teste> {
-  if (p === "anthropic") {
-    try {
-      await new Anthropic({ apiKey: cred.chave, maxRetries: 0, timeout: 15_000 }).models.list({ limit: 1 });
-      return "valida";
-    } catch (e) {
-      if (e instanceof Anthropic.AuthenticationError || e instanceof Anthropic.PermissionDeniedError) return "recusada";
-      return "indisponivel";
-    }
-  }
   try {
-    const r = await fetch(`${baseDe(p, cred.url)}/models`, {
-      headers: cabecalhos(cred.chave),
-      signal: AbortSignal.timeout(15_000),
+    const r = await fetch(`${IA_URL}/testar`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ provedor: p, ...cred }),
+      signal: AbortSignal.timeout(20_000),
       cache: "no-store",
     });
-    if (r.status === 401 || r.status === 403) return "recusada";
-    return r.ok ? "valida" : "indisponivel";
+    return r.ok ? ((await r.json()) as { resultado: Teste }).resultado : "indisponivel";
   } catch {
     return "indisponivel";
   }

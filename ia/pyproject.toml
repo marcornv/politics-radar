@@ -1,0 +1,22 @@
+[project]
+name = "radar-ia"
+version = "0.1.0"
+description = "Serviço de IA do Radar Legislativo: resumos em linguagem simples."
+requires-python = ">=3.12"
+license = "MIT"
+dependencies = [
+  "anthropic>=1.15",
+  "fastapi>=0.143",
+  "httpx>=0.28",
+  "python-dotenv>=1.0",
+  "uvicorn>=0.54",
+]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

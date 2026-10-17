@@ -12,12 +12,14 @@ Painel local para acompanhar o Congresso Nacional (Câmara dos Deputados e Senad
 
 ## Rodando
 
-Requer Node 20 ou superior.
+Requer Node 20 ou superior e o [uv](https://docs.astral.sh/uv/getting-started/installation/), que cuida do Python do serviço de IA (instala a versão certa e as dependências na primeira execução).
 
 ```bash
 npm install
 npm run dev                  # http://localhost:3000
 ```
+
+O `npm run dev` sobe dois processos com os logs identificados: o site (`[web]`, Next.js) e o serviço de IA (`[ia]`, Python, na porta 8787, só para este computador). Sem o uv o site funciona normalmente, só sem os resumos.
 
 Para uso diário, `npm run build && npm start` é mais rápido.
 
@@ -33,6 +35,12 @@ Dois recursos dependem de serviços externos, e tudo se configura pela própria 
 Quem preferir pode usar variáveis de ambiente em `.env.local` (veja `.env.example`, que também mostra como trocar o modelo de cada provedor); uma configuração salva pela tela tem prioridade.
 
 ## Como funciona
+
+- `ia/` é o serviço de IA, em Python (FastAPI). Ele escolhe o provedor, monta o prompt, chama a Anthropic, a OpenAI, a Groq ou o servidor compatível, valida o JSON e guarda cada resumo em `.cache/resumos/` por uma semana. O site só repassa a proposição para ele (`src/lib/ia.ts`) e mostra o resultado.
+  - `ia/radar_ia/resumo.py`: prompt, schema, validação e cache.
+  - `ia/radar_ia/provedores.py`: chamadas a cada provedor e teste de chaves.
+  - `ia/radar_ia/config.py`: lê `.config/chaves.json` e `.env.local`, com a mesma prioridade do site.
+  - Para depurar, rode `npm run dev:web` (só o site) e suba o serviço pelo seu editor ou com `npm run ia:dev`; os testes rodam com `npm run ia:test`. A documentação interativa da API fica em http://127.0.0.1:8787/docs.
 
 - `src/lib/camara.ts` e `src/lib/senado.ts` falam com as APIs oficiais e convertem tudo para o modelo comum em `src/lib/types.ts`.
   - Câmara: https://dadosabertos.camara.leg.br/api/v2

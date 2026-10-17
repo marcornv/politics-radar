@@ -5,7 +5,7 @@ import { ProvedorForm } from "@/components/ProvedorForm";
 import { PageHeader } from "@/components/ui";
 import { chave, mascarar, type NomeChave, origem } from "@/lib/config";
 import { ehAcessoLocal } from "@/lib/acesso";
-import { configurado, loginClaude, modeloDe, NOME_PROVEDOR, provedorAtivo, provedoresConfigurados } from "@/lib/ia";
+import { NOME_PROVEDOR, statusIA } from "@/lib/ia";
 
 export const metadata = { title: "Configurações | Radar Legislativo" };
 
@@ -128,9 +128,9 @@ function Selo({ ligado, children }: { ligado: boolean; children: React.ReactNode
   );
 }
 
-function Estado({ nome }: { nome: NomeChave }) {
+function Estado({ nome, loginClaude }: { nome: NomeChave; loginClaude: boolean }) {
   const o = origem(nome);
-  const usandoLogin = nome === "ANTHROPIC_API_KEY" && !o && loginClaude();
+  const usandoLogin = nome === "ANTHROPIC_API_KEY" && !o && loginClaude;
   if (!o && !usandoLogin) return <Selo ligado={false}>Não configurada</Selo>;
   const valor = chave(nome);
   return (
@@ -187,9 +187,9 @@ function Cartao({
   );
 }
 
-function CartaoChave({ s, bloqueado }: { s: Servico; bloqueado: boolean }) {
+function CartaoChave({ s, bloqueado, loginClaude = false }: { s: Servico; bloqueado: boolean; loginClaude?: boolean }) {
   return (
-    <Cartao titulo={s.titulo} estado={<Estado nome={s.nome} />} oQueFaz={s.oQueFaz} custo={s.custo} passos={s.passos}>
+    <Cartao titulo={s.titulo} estado={<Estado nome={s.nome} loginClaude={loginClaude} />} oQueFaz={s.oQueFaz} custo={s.custo} passos={s.passos}>
       <ChaveForm
         nome={s.nome}
         rotulo={s.rotulo}
@@ -205,8 +205,9 @@ function CartaoChave({ s, bloqueado }: { s: Servico; bloqueado: boolean }) {
 export default async function ConfiguracoesPage() {
   await connection();
   const local = await ehAcessoLocal();
-  const configurados = provedoresConfigurados();
-  const ativo = provedorAtivo();
+  const ia = await statusIA();
+  const configurados = ia?.configurados ?? [];
+  const ativo = ia?.ativo ?? null;
   const chaveCompativel = chave("COMPATIVEL_API_KEY");
 
   return (
@@ -239,10 +240,18 @@ export default async function ConfiguracoesPage() {
           o próximo passo. Configure uma das opções abaixo; com mais de uma, escolha qual usar.
         </p>
 
+        {!ia && (
+          <div className="rounded-lg border border-amber/40 bg-amber/5 p-4 text-[13.5px] text-ink">
+            O serviço de IA (pasta <code className="text-phosphor">ia/</code>) não está rodando, então os resumos estão
+            desligados e as chaves não podem ser testadas. Inicie o Radar com{" "}
+            <code className="text-phosphor">npm run dev</code>, que sobe os dois juntos.
+          </div>
+        )}
+
         {configurados.length > 1 && (
           <div className="panel p-5 sm:p-6">
             <ProvedorForm
-              opcoes={configurados.map((p) => ({ valor: p, nome: NOME_PROVEDOR[p], modelo: modeloDe(p) }))}
+              opcoes={configurados.map((p) => ({ valor: p.id, nome: p.nome, modelo: p.modelo }))}
               ativo={ativo}
               bloqueado={!local}
             />
@@ -250,14 +259,14 @@ export default async function ConfiguracoesPage() {
         )}
 
         {IAS.map((s) => (
-          <CartaoChave key={s.nome} s={s} bloqueado={!local} />
+          <CartaoChave key={s.nome} s={s} bloqueado={!local} loginClaude={!!ia?.loginClaude} />
         ))}
 
         <Cartao
           titulo="Compatível com OpenAI"
           estado={
             <span className="text-[12px]">
-              <Selo ligado={configurado("compativel")}>{configurado("compativel") ? "Configurada" : "Não configurada"}</Selo>
+              <Selo ligado={!!ia?.compativel}>{ia?.compativel ? "Configurada" : "Não configurada"}</Selo>
             </span>
           }
           oQueFaz="Qualquer servidor que fale a API da OpenAI: modelos rodando no seu próprio computador (Ollama, LM Studio) ou serviços como o OpenRouter."

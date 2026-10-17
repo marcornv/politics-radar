@@ -3,7 +3,7 @@
 import { refresh } from "next/cache";
 import { ehAcessoLocal } from "@/lib/acesso";
 import { CHAVES, chave, type NomeChave, salvar } from "@/lib/config";
-import { configurado, ehProvedor, NOME_PROVEDOR, type Provedor, type Teste, testarConexao } from "@/lib/ia";
+import { ehProvedor, NOME_PROVEDOR, type Provedor, statusIA, type Teste, testarConexao } from "@/lib/ia";
 
 export type EstadoChave = { tipo: "ok" | "erro" | "aviso"; msg: string } | null;
 
@@ -84,7 +84,10 @@ export async function acaoChave(_prev: EstadoChave, form: FormData): Promise<Est
 export async function acaoProvedor(_prev: EstadoChave, form: FormData): Promise<EstadoChave> {
   if (!(await ehAcessoLocal())) return BLOQUEADO;
   const provedor = form.get("provedor");
-  if (!ehProvedor(provedor) || !configurado(provedor)) return { tipo: "erro", msg: "Escolha uma IA já configurada." };
+  const configurados = (await statusIA())?.configurados ?? [];
+  if (!ehProvedor(provedor) || !configurados.some((c) => c.id === provedor)) {
+    return { tipo: "erro", msg: "Escolha uma IA já configurada." };
+  }
   await salvar({ IA_PROVEDOR: provedor });
   refresh();
   return { tipo: "ok", msg: `Os resumos agora usam a ${NOME_PROVEDOR[provedor]}.` };
