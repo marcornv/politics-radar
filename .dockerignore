@@ -1,0 +1,11 @@
+# Never bake keys, caches or local builds into the image.
+.config
+.cache
+.env*
+!.env.example
+.next
+node_modules
+ia/.venv
+**/__pycache__
+**/.pytest_cache
+.git

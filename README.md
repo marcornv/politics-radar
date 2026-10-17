@@ -25,6 +25,19 @@ Para uso diário, `npm run build && npm start` é mais rápido.
 
 Por padrão o Radar só aceita conexões do próprio computador (`127.0.0.1`). Para abrir pelo celular ou outro aparelho da mesma rede, use `npm run dev:rede` ou `npm run start:rede` e acesse pelo IP da máquina. Faça isso só em redes de confiança: quem estiver na rede consegue gerar resumos cobrados na sua conta de IA.
 
+### Com Docker (sem Node nem Python)
+
+```bash
+docker compose up -d         # http://localhost:3000
+```
+
+Sobe o Radar e um [Ollama](https://ollama.com) já configurado para os resumos, sem nenhuma chave. Na primeira vez o modelo padrão (`llama3.1:8b`, cerca de 5 GB) é baixado; acompanhe com `docker compose logs -f ollama-modelo`. Para outro modelo: `OLLAMA_MODEL=qwen2.5:3b docker compose up -d`.
+
+- Sem GPU o Ollama roda no processador e cada resumo pode levar um minuto ou mais. Com placa NVIDIA, descomente o bloco `deploy` no `docker-compose.yml` (requer o NVIDIA Container Toolkit). No Mac, o Docker não usa a GPU; ali vale mais instalar o Ollama direto ou usar uma chave de API.
+- Para usar Anthropic, OpenAI ou Groq, cole a chave em Configurações. Com uma chave salva, escolha qual IA usar no seletor que aparece.
+- Chaves e cache ficam em volumes do Docker e sobrevivem a `docker compose down`. Para apagar tudo, inclusive o modelo baixado: `docker compose down -v`.
+- Para atualizar depois de um `git pull`: `docker compose up -d --build`.
+
 ### Chaves opcionais
 
 Dois recursos dependem de serviços externos, e tudo se configura pela própria ferramenta, em **Configurações** no menu. A tela explica como conseguir cada chave, testa antes de salvar e guarda em `.config/chaves.json` (fora do git, legível só pelo seu usuário). A edição só é permitida no próprio computador (`localhost`), não por outros aparelhos da rede.

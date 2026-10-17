@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // The Docker image runs the minimal server from .next/standalone; `npm start` keeps the regular build.
+  output: process.env.NEXT_STANDALONE ? "standalone" : undefined,
   async headers() {
     return [
       {
