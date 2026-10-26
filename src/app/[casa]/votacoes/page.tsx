@@ -1,11 +1,14 @@
 import { notFound } from "next/navigation";
 import { connection } from "next/server";
 import { Suspense } from "react";
+import { AgendaForYou } from "@/components/AgendaForYou";
 import { PautaPrevista } from "@/components/PautaPrevista";
 import { Escaneando, FonteIndisponivel, PageHeader, SegLinks } from "@/components/ui";
 import { VotacoesLista } from "@/components/VotacoesLista";
 import { addDays, today } from "@/lib/dates";
-import { agenda, votacoes } from "@/lib/legislativo";
+import { statusIA } from "@/lib/ia";
+import { votacoes } from "@/lib/legislativo";
+import { upcomingSessions } from "@/lib/pauta";
 import { type Casa, CASA_CURTA, isCasa } from "@/lib/types";
 
 const PERIODOS = [7, 30, 90] as const;
@@ -23,13 +26,16 @@ async function Realizadas({ casa, dias }: { casa: Casa; dias: number }) {
 }
 
 async function Previstas({ casa }: { casa: Casa }) {
-  const de = today();
-  const evs = await agenda(casa, de, addDays(de, 14)).catch(() => null);
-  if (!evs) return <FonteIndisponivel casa={CASA_CURTA[casa]} />;
-  const futuras = evs.filter(
-    (e) => e.deliberativo && e.pauta.length > 0 && !/encerrad|cancelad|realizada|n[ãa]o realizada/i.test(e.situacao),
+  const [futuras, ia] = await Promise.all([upcomingSessions(casa).catch(() => null), statusIA()]);
+  if (!futuras) return <FonteIndisponivel casa={CASA_CURTA[casa]} />;
+  return (
+    <div className="space-y-6">
+      {futuras.length > 0 && (
+        <AgendaForYou casa={casa} hasProfile={!!ia?.leitor} model={ia ? ia.agenda : null} />
+      )}
+      <PautaPrevista casa={casa} eventos={futuras} />
+    </div>
   );
-  return <PautaPrevista casa={casa} eventos={futuras} />;
 }
 
 export default async function VotacoesPage({ params, searchParams }: PageProps<"/[casa]/votacoes">) {

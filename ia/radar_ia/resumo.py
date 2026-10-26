@@ -1,17 +1,16 @@
 """Plain-language summary of a bill: prompt, schema, validation and cache."""
 
-import asyncio
 import hashlib
-import json
 import logging
 import re
 import time
 from datetime import UTC, datetime
-from typing import Any, Awaitable, Callable, Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel
 
 from . import config
+from .cache import cached
 from .provedores import ErroIA, gerar_json, modelo_de, provedor_ativo
 
 log = logging.getLogger("radar_ia")
@@ -180,51 +179,6 @@ def validar(d: Any, leitor: str | None = None) -> dict[str, Any]:
     raise ErroIA("outro", "A IA devolveu um resumo incompleto. Tente de novo ou use outro modelo.")
 
 
-# ------------------------------------------------------------------ cache
-
-TTL = 7 * 24 * 3600
-_em_andamento: dict[str, asyncio.Task] = {}
-
-
-def _arquivo(chave: str):
-    return config.CACHE_DIR / f"{hashlib.sha1(chave.encode()).hexdigest()}.json"
-
-
-def _ler_cache(chave: str) -> dict | None:
-    try:
-        return json.loads(_arquivo(chave).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-
-
-def _gravar_cache(chave: str, valor: dict) -> None:
-    try:
-        config.CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        _arquivo(chave).write_text(json.dumps({"at": time.time(), "value": valor}, ensure_ascii=False), encoding="utf-8")
-    except OSError:
-        log.warning("não deu para gravar o cache de %s", chave)
-
-
-async def _cacheado(chave: str, carregar: Callable[[], Awaitable[dict]]) -> dict:
-    """Disk cache with a TTL. Concurrent callers share one generation; on failure a stale value is served."""
-    antigo = _ler_cache(chave)
-    if antigo and time.time() - antigo["at"] < TTL:
-        log.info("cache hit %s", chave)
-        return antigo["value"]
-    if chave not in _em_andamento:
-        _em_andamento[chave] = asyncio.create_task(carregar())
-        _em_andamento[chave].add_done_callback(lambda _: _em_andamento.pop(chave, None))
-    try:
-        valor = await asyncio.shield(_em_andamento[chave])
-    except Exception:
-        if antigo:
-            log.warning("falha ao gerar %s; usando o resumo antigo", chave)
-            return antigo["value"]
-        raise
-    _gravar_cache(chave, valor)
-    return valor
-
-
 async def resumir(p: Proposicao) -> Resumo:
     """Generated once per provider and model and cached for a week."""
     provedor = provedor_ativo()
@@ -244,4 +198,4 @@ async def resumir(p: Proposicao) -> Resumo:
     # Editing the instructions or the reader context in Configurações writes a new summary.
     prompt = hashlib.sha1(system.encode()).hexdigest()[:12]
     chave = f"resumo:{provedor}:{modelo_de(provedor)}:{p.casa}:{p.id}:{p.situacao}:{prompt}"
-    return Resumo(**await _cacheado(chave, gerar))
+    return Resumo(**await cached(chave, gerar))

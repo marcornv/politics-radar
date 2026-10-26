@@ -274,6 +274,21 @@ export default async function ConfiguracoesPage() {
               limiteInstrucoes={LIMITE_INSTRUCOES}
               bloqueado={!local}
             />
+            <p className="border-t border-line pt-3 text-[13px] text-ink-2">
+              <span className="text-ink">Pauta para você:</span>{" "}
+              {ia.agenda.available ? (
+                <>
+                  a aba Previstas de cada Casa ordena a pauta pelo seu &ldquo;Sobre você&rdquo; ou por um tema que você
+                  digitar, usando o modelo <Cod>{ia.agenda.model}</Cod> do Ollama. Só roda
+                  quando você clica.
+                </>
+              ) : (
+                <>
+                  desligada. {ia.agenda.reason} Ela usa o modelo <Cod>{ia.agenda.model}</Cod> do Ollama, que roda
+                  neste computador enquanto ordena.
+                </>
+              )}
+            </p>
           </div>
         )}
 
