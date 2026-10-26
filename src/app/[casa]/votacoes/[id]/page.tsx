@@ -7,7 +7,7 @@ import { VotacaoExplorer } from "@/components/VotacaoExplorer";
 import { PlacarMini, ResultadoChip } from "@/components/VoteBar";
 import { formatDayLong, formatTime, hasTime } from "@/lib/dates";
 import { votacao } from "@/lib/legislativo";
-import { resumoDisponivel } from "@/lib/resumo";
+import { summaryOptions } from "@/lib/resumo";
 import { CASA_CURTA, isCasa } from "@/lib/types";
 
 export async function generateMetadata({ params }: PageProps<"/[casa]/votacoes/[id]">) {
@@ -74,7 +74,7 @@ export default async function VotacaoPage({ params }: PageProps<"/[casa]/votacoe
 
       {prop && (
         <div className="mb-6">
-          <ResumoCard key={prop.id} casa={casa} id={prop.id} disponivel={await resumoDisponivel()} />
+          <ResumoCard key={prop.id} casa={casa} id={prop.id} {...await summaryOptions()} />
         </div>
       )}
 

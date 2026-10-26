@@ -13,11 +13,15 @@ export async function POST(req: Request, ctx: RouteContext<"/api/resumo/[casa]/[
     return Response.json({ erro: "Resumo por IA desativado: configure uma IA em Configurações." }, { status: 503 });
   }
 
+  // The card says whether to use "Sobre você"; an empty body keeps the old behaviour (use it).
+  const corpo = await req.json().catch(() => ({}));
+  const comLeitor = corpo?.comLeitor !== false;
+
   const p = await proposicao(casa, id).catch(() => null);
   if (!p) return Response.json({ erro: "Não foi possível carregar a proposição na fonte oficial." }, { status: 502 });
 
   try {
-    return Response.json(await resumir(p));
+    return Response.json(await resumir(p, comLeitor));
   } catch (e) {
     const erro = e instanceof ErroIA ? e.message : "Não foi possível gerar o resumo agora.";
     return Response.json({ erro }, { status: 502 });

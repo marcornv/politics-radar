@@ -10,8 +10,16 @@ export interface Resumo {
   afetados: string;
   /** Where it stands and what comes next. */
   proximoPasso: string;
+  /** Why it matters to the reader described in Configurações; only when one is. */
+  paraVoce?: string;
   modelo: string;
   geradoEm: string;
 }
 
 export const resumoDisponivel = async () => !!(await statusIA())?.ativo;
+
+/** Props for ResumoCard: whether an AI is configured and whether "Sobre você" is filled in. */
+export async function summaryOptions(): Promise<{ disponivel: boolean; temPerfil: boolean }> {
+  const s = await statusIA();
+  return { disponivel: !!s?.ativo, temPerfil: !!s?.leitor };
+}

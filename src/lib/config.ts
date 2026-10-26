@@ -19,10 +19,14 @@ export const CHAVES = [
 export type NomeChave = (typeof CHAVES)[number];
 
 /** Non-secret settings kept in the same file, with the same precedence over `.env.local`. */
-export const AJUSTES = ["IA_PROVEDOR", "COMPATIVEL_URL", "COMPATIVEL_MODELO"] as const;
+export const AJUSTES = ["IA_PROVEDOR", "COMPATIVEL_URL", "COMPATIVEL_MODELO", "IA_CONTEXTO", "IA_INSTRUCOES"] as const;
 export type NomeAjuste = (typeof AJUSTES)[number];
 
 type Nome = NomeChave | NomeAjuste;
+
+/** Lengths accepted for `IA_CONTEXTO` and `IA_INSTRUCOES`. */
+export const LIMITE_CONTEXTO = 600;
+export const LIMITE_INSTRUCOES = 4000;
 
 const DIR = path.join(process.cwd(), ".config");
 const ARQUIVO = path.join(DIR, "chaves.json");

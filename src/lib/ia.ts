@@ -40,6 +40,12 @@ export interface StatusIA {
   compativel: boolean;
   /** Claude Code / `ant` login on this machine, used when no Anthropic key is set. */
   loginClaude: boolean;
+  /** The summary instructions used when none are saved in `IA_INSTRUCOES`. */
+  instrucoesPadrao: string;
+  /** Whether "Sobre você" is filled in. */
+  leitor: boolean;
+  /** The Ollama embedding model that orders the agenda for the reader, run only on request. */
+  agenda: { model: string; available: boolean; reason: string | null };
 }
 
 /** What the AI service sees right now, or null when it isn't running. */
@@ -52,10 +58,11 @@ export async function statusIA(): Promise<StatusIA | null> {
   }
 }
 
-export async function resumir(p: ProposicaoDetalhe): Promise<Resumo> {
+/** `comLeitor: false` writes the summary without "Sobre você", even when one is saved. */
+export async function resumir(p: ProposicaoDetalhe, comLeitor = true): Promise<Resumo> {
   let r: Response;
   try {
-    r = await fetch(`${IA_URL}/resumo`, {
+    r = await fetch(`${IA_URL}/resumo?com_leitor=${comLeitor}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(p),
@@ -69,6 +76,43 @@ export async function resumir(p: ProposicaoDetalhe): Promise<Resumo> {
   const j = await r.json().catch(() => null);
   if (!r.ok) throw new ErroIA(j?.erro ?? "Não foi possível gerar o resumo agora.");
   return j as Resumo;
+}
+
+export interface AgendaItemInput {
+  /** Stable id of the bill, so the service reuses its embedding across days. */
+  key: string;
+  title: string;
+  summary?: string;
+}
+
+export interface AgendaRanking {
+  model: string;
+  /** Most related first; the score (cosine similarity) only orders the list. */
+  items: { key: string; score: number }[];
+  rankedAt: string;
+}
+
+/**
+ * Orders agenda items by relevance to `topic` when given, otherwise to the reader's "Sobre você";
+ * the profile, model and cache live in the service.
+ */
+export async function rankAgenda(items: AgendaItemInput[], limit = 5, topic?: string): Promise<AgendaRanking> {
+  let r: Response;
+  try {
+    r = await fetch(`${IA_URL}/agenda/rank`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ items, limit, topic }),
+      // About 0.25 s per new bill on CPU; a full agenda the first time can take a minute.
+      signal: AbortSignal.timeout(300_000),
+      cache: "no-store",
+    });
+  } catch {
+    throw new ErroIA("O serviço de IA não está rodando. Inicie o Radar com npm run dev.");
+  }
+  const j = await r.json().catch(() => null);
+  if (!r.ok) throw new ErroIA(j?.erro ?? "Não foi possível ordenar a pauta agora.");
+  return j as AgendaRanking;
 }
 
 export type Teste = "valida" | "recusada" | "indisponivel";
