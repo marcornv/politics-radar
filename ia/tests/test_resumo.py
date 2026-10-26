@@ -1,14 +1,16 @@
+import asyncio
 import json
 
 import pytest
 
 from radar_ia import config, provedores
 from radar_ia.provedores import ErroIA, ler_json, provedor_ativo
-from radar_ia.resumo import Proposicao, Tramitacao, contexto, validar
+from radar_ia import resumo
+from radar_ia.resumo import FORMATO, INSTRUCOES_PADRAO, Proposicao, Tramitacao, contexto, eco, montar_system, validar
 
 VARIAVEIS = [
     "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GROQ_API_KEY", "COMPATIVEL_URL", "COMPATIVEL_MODELO",
-    "IA_PROVEDOR", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_PROFILE",
+    "IA_PROVEDOR", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_PROFILE", "IA_CONTEXTO", "IA_INSTRUCOES",
 ]
 
 
@@ -38,6 +40,58 @@ def test_validar():
     for ruim in [None, [], {**ok, "sintese": " "}, {**ok, "mudancas": "a"}, {**ok, "mudancas": ["a", 2]}]:
         with pytest.raises(ErroIA):
             validar(ruim)
+
+
+def test_validar_com_leitor():
+    leitor = "Sou um jovem de 27 anos programador de IA que estou procurando emprego fora do país."
+    explicacao = "Como você busca emprego no exterior, a mudança no MEI só importa se você for prestar serviço como MEI."
+    ok = {"sintese": "s", "mudancas": ["a"], "afetados": "x", "proximoPasso": "p", "paraVoce": explicacao}
+    assert validar(ok)["sintese"] == "s" and "paraVoce" not in validar(ok)
+    assert validar(ok, leitor)["paraVoce"] == explicacao
+    with pytest.raises(ErroIA):
+        validar({**ok, "paraVoce": " "}, leitor)
+    # Answers seen from small models: the reader's description handed back instead of an explanation.
+    for repetido in ["Jovem de 27 anos programador de IA", "Jovem de 27 anos programador de IA buscando emprego internacional"]:
+        assert eco(repetido, leitor)
+        assert "paraVoce" not in validar({**ok, "paraVoce": repetido}, leitor)
+    assert not eco(explicacao, leitor)
+
+
+def test_montar_system(chaves):
+    chaves()
+    system, leitor = montar_system()
+    assert leitor is None
+    assert system == f"{INSTRUCOES_PADRAO}\n\n{FORMATO}"
+
+    chaves(IA_INSTRUCOES="Seja breve.", IA_CONTEXTO="sou estudante de medicina")
+    system, leitor = montar_system()
+    assert leitor == "sou estudante de medicina"
+    assert system.startswith("Seja breve.") and INSTRUCOES_PADRAO not in system
+    assert "Quem vai ler se descreveu assim: sou estudante de medicina" in system
+    # The fixed rules always come last, so custom instructions can't override the output format.
+    assert system.endswith(FORMATO)
+
+
+def test_prompt_entra_na_chave_do_cache(chaves, tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "CACHE_DIR", tmp_path / "cache")
+    chamadas = []
+
+    async def falso(provedor, system, user, schema):
+        chamadas.append(schema)
+        dados = {"sintese": "s", "mudancas": ["a"], "afetados": "x", "proximoPasso": "p"}
+        return ({**dados, "paraVoce": "Para você, que estuda medicina, isso muda o fim do curso."} if "paraVoce" in schema["properties"] else dados), "m"
+
+    monkeypatch.setattr(resumo, "gerar_json", falso)
+    p = Proposicao(id="1", casa="camara", sigla="PL 1/2026", tipo="PL", ementa="X.")
+
+    chaves(GROQ_API_KEY="gsk_x")
+    assert asyncio.run(resumo.resumir(p)).paraVoce is None
+    asyncio.run(resumo.resumir(p))
+    assert len(chamadas) == 1
+
+    chaves(GROQ_API_KEY="gsk_x", IA_CONTEXTO="sou estudante de medicina")
+    assert asyncio.run(resumo.resumir(p)).paraVoce.startswith("Para você")
+    assert len(chamadas) == 2 and "paraVoce" in chamadas[1]["required"]
 
 
 def test_contexto_omite_campos_vazios():

@@ -17,7 +17,7 @@ from .provedores import (
     provedores_configurados,
     testar_conexao,
 )
-from .resumo import Proposicao, Resumo, resumir
+from .resumo import INSTRUCOES_PADRAO, Proposicao, Resumo, resumir
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("radar_ia")
@@ -39,6 +39,7 @@ class Status(BaseModel):
     configurados: list[OpcaoProvedor]
     compativel: bool
     loginClaude: bool
+    instrucoesPadrao: str
 
 
 @app.get("/status")
@@ -48,6 +49,7 @@ def status() -> Status:
         configurados=[OpcaoProvedor(id=p, nome=NOME_PROVEDOR[p], modelo=modelo_de(p)) for p in provedores_configurados()],
         compativel=configurado("compativel"),
         loginClaude=login_claude(),
+        instrucoesPadrao=INSTRUCOES_PADRAO,
     )
 
 

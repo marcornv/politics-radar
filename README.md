@@ -55,7 +55,7 @@ Sobe o Radar e um [Ollama](https://ollama.com) já configurado para os resumos, 
 
 Dois recursos dependem de serviços externos, e tudo se configura pela própria ferramenta, em **Configurações** no menu. A tela explica como conseguir cada chave, testa antes de salvar e guarda em `.config/chaves.json` (fora do git, legível só pelo seu usuário). A edição só é permitida no próprio computador (`localhost`), não por outros aparelhos da rede.
 
-- **Resumos em linguagem simples**: escolha entre Anthropic (Claude), OpenAI, Groq (tem plano gratuito) ou qualquer servidor compatível com a API da OpenAI. Com o [Ollama](https://ollama.com) ou o LM Studio dá para rodar um modelo no seu computador, sem custo e sem enviar nada para fora. Com mais de uma configurada, a tela tem um seletor de qual usar.
+- **Resumos em linguagem simples**: escolha entre Anthropic (Claude), OpenAI, Groq (tem plano gratuito) ou qualquer servidor compatível com a API da OpenAI. Com o [Ollama](https://ollama.com) ou o LM Studio dá para rodar um modelo no seu computador, sem custo e sem enviar nada para fora. Com mais de uma configurada, a tela tem um seletor de qual usar. Em **Personalizar os resumos** dá para contar quem você é (por exemplo, "sou estudante de medicina"), e cada resumo ganha um item "Para você"; na parte avançada, dá para reescrever as instruções da IA. O formato do resumo e as regras de não opinar e usar só os dados oficiais continuam fixos.
 - **Emendas ao orçamento**: chave gratuita do Portal da Transparência.
 
 Quem preferir pode usar variáveis de ambiente em `.env.local` (veja `.env.example`, que também mostra como trocar o modelo de cada provedor); uma configuração salva pela tela tem prioridade.

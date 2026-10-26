@@ -10,6 +10,8 @@ export interface Resumo {
   afetados: string;
   /** Where it stands and what comes next. */
   proximoPasso: string;
+  /** Why it matters to the reader described in Configurações; only when one is. */
+  paraVoce?: string;
   modelo: string;
   geradoEm: string;
 }

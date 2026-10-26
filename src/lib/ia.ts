@@ -40,6 +40,8 @@ export interface StatusIA {
   compativel: boolean;
   /** Claude Code / `ant` login on this machine, used when no Anthropic key is set. */
   loginClaude: boolean;
+  /** The summary instructions used when none are saved in `IA_INSTRUCOES`. */
+  instrucoesPadrao: string;
 }
 
 /** What the AI service sees right now, or null when it isn't running. */

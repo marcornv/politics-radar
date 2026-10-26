@@ -2,7 +2,7 @@
 
 import { refresh } from "next/cache";
 import { ehAcessoLocal } from "@/lib/acesso";
-import { CHAVES, chave, type NomeChave, salvar } from "@/lib/config";
+import { CHAVES, chave, LIMITE_CONTEXTO, LIMITE_INSTRUCOES, type NomeChave, salvar } from "@/lib/config";
 import { ehProvedor, NOME_PROVEDOR, type Provedor, statusIA, type Teste, testarConexao } from "@/lib/ia";
 
 export type EstadoChave = { tipo: "ok" | "erro" | "aviso"; msg: string } | null;
@@ -91,6 +91,33 @@ export async function acaoProvedor(_prev: EstadoChave, form: FormData): Promise<
   await salvar({ IA_PROVEDOR: provedor });
   refresh();
   return { tipo: "ok", msg: `Os resumos agora usam a ${NOME_PROVEDOR[provedor]}.` };
+}
+
+export async function acaoPersonalizacao(_prev: EstadoChave, form: FormData): Promise<EstadoChave> {
+  if (!(await ehAcessoLocal())) return BLOQUEADO;
+
+  if (form.get("intent") === "restaurar") {
+    await salvar({ IA_INSTRUCOES: null });
+    refresh();
+    return { tipo: "ok", msg: "Instruções padrão restauradas." };
+  }
+
+  // Browsers submit textarea line breaks as \r\n, which would never match the default text.
+  const campo = (nome: string) => String(form.get(nome) ?? "").replace(/\r\n?/g, "\n").trim();
+  const contexto = campo("contexto");
+  const instrucoes = campo("instrucoes");
+  if (contexto.length > LIMITE_CONTEXTO) {
+    return { tipo: "erro", msg: `O texto sobre você passou de ${LIMITE_CONTEXTO} caracteres. Resuma um pouco.` };
+  }
+  if (instrucoes.length > LIMITE_INSTRUCOES) {
+    return { tipo: "erro", msg: `As instruções passaram de ${LIMITE_INSTRUCOES} caracteres.` };
+  }
+
+  // Saving the default text unchanged keeps following future updates to it.
+  const padrao = (await statusIA())?.instrucoesPadrao.trim();
+  await salvar({ IA_CONTEXTO: contexto, IA_INSTRUCOES: instrucoes === padrao ? null : instrucoes });
+  refresh();
+  return { tipo: "ok", msg: "Salvo. Os próximos resumos já usam essas preferências." };
 }
 
 const LOCAL = /^(localhost|127\.\d+\.\d+\.\d+|\[::1\])$/;

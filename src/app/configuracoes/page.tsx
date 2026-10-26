@@ -1,9 +1,10 @@
 import { connection } from "next/server";
 import { ChaveForm } from "@/components/ChaveForm";
 import { CompativelForm } from "@/components/CompativelForm";
+import { PersonalizacaoForm } from "@/components/PersonalizacaoForm";
 import { ProvedorForm } from "@/components/ProvedorForm";
 import { PageHeader } from "@/components/ui";
-import { chave, mascarar, type NomeChave, origem } from "@/lib/config";
+import { chave, LIMITE_CONTEXTO, LIMITE_INSTRUCOES, mascarar, type NomeChave, origem } from "@/lib/config";
 import { ehAcessoLocal } from "@/lib/acesso";
 import { NOME_PROVEDOR, statusIA } from "@/lib/ia";
 
@@ -253,6 +254,24 @@ export default async function ConfiguracoesPage() {
             <ProvedorForm
               opcoes={configurados.map((p) => ({ valor: p.id, nome: p.nome, modelo: p.modelo }))}
               ativo={ativo}
+              bloqueado={!local}
+            />
+          </div>
+        )}
+
+        {ia && (
+          <div className="panel space-y-3 p-5 sm:p-6">
+            <h3 className="font-display text-[18px] font-semibold">Personalizar os resumos</h3>
+            <p className="max-w-[62ch] text-[14px] text-ink-2">
+              Conte quem você é para receber análises mais úteis para o seu caso, ou ajuste as instruções que a IA segue.
+              Vale para todos os resumos gerados daqui em diante.
+            </p>
+            <PersonalizacaoForm
+              contexto={chave("IA_CONTEXTO")}
+              instrucoes={chave("IA_INSTRUCOES")}
+              instrucoesPadrao={ia.instrucoesPadrao}
+              limiteContexto={LIMITE_CONTEXTO}
+              limiteInstrucoes={LIMITE_INSTRUCOES}
               bloqueado={!local}
             />
           </div>

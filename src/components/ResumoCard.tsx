@@ -116,6 +116,12 @@ export function ResumoCard({
             </ul>
           )}
           <dl className="grid gap-x-4 gap-y-1 text-[13px] sm:grid-cols-[110px_1fr]">
+            {estado.resumo.paraVoce && (
+              <>
+                <dt className="text-phosphor">Para você</dt>
+                <dd className="text-ink">{estado.resumo.paraVoce}</dd>
+              </>
+            )}
             <dt className="text-muted">Quem é afetado</dt>
             <dd className="text-ink-2">{estado.resumo.afetados}</dd>
             <dt className="text-muted">Próximo passo</dt>
