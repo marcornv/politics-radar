@@ -17,3 +17,9 @@ export interface Resumo {
 }
 
 export const resumoDisponivel = async () => !!(await statusIA())?.ativo;
+
+/** Props for ResumoCard: whether an AI is configured and whether "Sobre você" is filled in. */
+export async function summaryOptions(): Promise<{ disponivel: boolean; temPerfil: boolean }> {
+  const s = await statusIA();
+  return { disponivel: !!s?.ativo, temPerfil: !!s?.leitor };
+}

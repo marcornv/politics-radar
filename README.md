@@ -10,7 +10,7 @@ Painel local para acompanhar o Congresso Nacional (Câmara dos Deputados e Senad
 - **Agenda da semana**: sessões de plenário e reuniões de comissões das duas Casas, com as pautas.
 - **Perfil de cada parlamentar**: dados pessoais e de contato, votos nominais com participação e fidelidade partidária, projetos de autoria, emendas a projetos, emendas ao orçamento, gastos da cota parlamentar dos últimos 12 meses, comissões, frentes e filiações. Clique em qualquer assento ou nome para abrir.
 - **Emendas**: a projetos (Senado e comissões mistas do Congresso, com autor e decisão) e ao orçamento (Portal da Transparência, com autor, destino e quanto foi pago).
-- **Resumo em linguagem simples** (opcional): gerado por IA (Claude, GPT, Groq ou um modelo rodando no seu computador) a partir da ementa e da tramitação, guardado em cache.
+- **Resumo em linguagem simples** (opcional): gerado por IA (Claude, GPT, Groq ou um modelo rodando no seu computador) a partir da ementa e da tramitação, quando você clica em **Gerar resumo**, e guardado em cache.
 
 ## Telas
 
@@ -55,7 +55,7 @@ Sobe o Radar e um [Ollama](https://ollama.com) já configurado para os resumos, 
 
 Dois recursos dependem de serviços externos, e tudo se configura pela própria ferramenta, em **Configurações** no menu. A tela explica como conseguir cada chave, testa antes de salvar e guarda em `.config/chaves.json` (fora do git, legível só pelo seu usuário). A edição só é permitida no próprio computador (`localhost`), não por outros aparelhos da rede.
 
-- **Resumos em linguagem simples**: escolha entre Anthropic (Claude), OpenAI, Groq (tem plano gratuito) ou qualquer servidor compatível com a API da OpenAI. Com o [Ollama](https://ollama.com) ou o LM Studio dá para rodar um modelo no seu computador, sem custo e sem enviar nada para fora. Com mais de uma configurada, a tela tem um seletor de qual usar. Em **Personalizar os resumos** dá para contar quem você é (por exemplo, "sou estudante de medicina"), e cada resumo ganha um item "Para você"; na parte avançada, dá para reescrever as instruções da IA. O formato do resumo e as regras de não opinar e usar só os dados oficiais continuam fixos.
+- **Resumos em linguagem simples**: escolha entre Anthropic (Claude), OpenAI, Groq (tem plano gratuito) ou qualquer servidor compatível com a API da OpenAI. Com o [Ollama](https://ollama.com) ou o LM Studio dá para rodar um modelo no seu computador, sem custo e sem enviar nada para fora. Com mais de uma configurada, a tela tem um seletor de qual usar. O resumo só é gerado quando você clica em **Gerar resumo** na página da proposição ou da votação, para não gastar com o que você não vai ler. Em **Personalizar os resumos** dá para contar quem você é (por exemplo, "sou estudante de medicina"); com isso, ao lado do botão aparece **Usar meu "Sobre você"**, que acrescenta ao resumo um item "Para você". Dá para ver as duas versões, com e sem, e cada uma fica guardada. Na parte avançada, dá para reescrever as instruções da IA. O formato do resumo e as regras de não opinar e usar só os dados oficiais continuam fixos.
 - **Pauta para você**: ordena os itens previstos para votação pelo que mais tem a ver com o seu "Sobre você" ou com um tema que você digitar. Roda neste computador, com o Ollama, e só quando você pede; veja [Pauta para você](#pauta-para-você).
 - **Emendas ao orçamento**: chave gratuita do Portal da Transparência.
 

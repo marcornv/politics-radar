@@ -51,7 +51,8 @@ export function PersonalizacaoForm({
           className={CAMPO}
         />
         <p className="mt-1 text-[12px] text-muted">
-          Com isso preenchido, cada resumo ganha um item “Para você”, explicando por que a proposta importa no seu caso.{" "}
+          Com isso preenchido, ao gerar um resumo você pode marcar &ldquo;Usar meu Sobre você&rdquo; e ele ganha um item
+          &ldquo;Para você&rdquo;, explicando por que a proposta importa no seu caso.{" "}
           <span className="tnum">
             {texto.length}/{limiteContexto}
           </span>

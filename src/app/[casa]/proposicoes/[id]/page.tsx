@@ -11,7 +11,7 @@ import { emendasDoProcesso } from "@/lib/perfil-senado";
 import { formatDate } from "@/lib/dates";
 import { ETAPA_LABEL } from "@/lib/fase";
 import { proposicao } from "@/lib/legislativo";
-import { resumoDisponivel } from "@/lib/resumo";
+import { summaryOptions } from "@/lib/resumo";
 import { CASA_CURTA, isCasa, type ProposicaoDetalhe } from "@/lib/types";
 
 export async function generateMetadata({ params }: PageProps<"/[casa]/proposicoes/[id]">) {
@@ -75,7 +75,7 @@ export default async function ProposicaoPage({ params }: PageProps<"/[casa]/prop
             <FaseTrack fase={p.fase} situacao={p.situacao} />
           </section>
 
-          <ResumoCard key={p.id} casa={casa} id={p.id} disponivel={await resumoDisponivel()} />
+          <ResumoCard key={p.id} casa={casa} id={p.id} {...await summaryOptions()} />
 
           {emendas.length > 0 && (
             <section>

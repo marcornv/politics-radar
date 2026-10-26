@@ -58,10 +58,11 @@ export async function statusIA(): Promise<StatusIA | null> {
   }
 }
 
-export async function resumir(p: ProposicaoDetalhe): Promise<Resumo> {
+/** `comLeitor: false` writes the summary without "Sobre você", even when one is saved. */
+export async function resumir(p: ProposicaoDetalhe, comLeitor = true): Promise<Resumo> {
   let r: Response;
   try {
-    r = await fetch(`${IA_URL}/resumo`, {
+    r = await fetch(`${IA_URL}/resumo?com_leitor=${comLeitor}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(p),

@@ -71,6 +71,10 @@ def test_montar_system(chaves):
     # The fixed rules always come last, so custom instructions can't override the output format.
     assert system.endswith(FORMATO)
 
+    # The reader can ask for a summary without "Sobre você" even with one saved.
+    system, leitor = montar_system(com_leitor=False)
+    assert leitor is None and "Quem vai ler" not in system and system.startswith("Seja breve.")
+
 
 def test_prompt_entra_na_chave_do_cache(chaves, tmp_path, monkeypatch):
     monkeypatch.setattr(config, "CACHE_DIR", tmp_path / "cache")
@@ -92,6 +96,10 @@ def test_prompt_entra_na_chave_do_cache(chaves, tmp_path, monkeypatch):
     chaves(GROQ_API_KEY="gsk_x", IA_CONTEXTO="sou estudante de medicina")
     assert asyncio.run(resumo.resumir(p)).paraVoce.startswith("Para você")
     assert len(chamadas) == 2 and "paraVoce" in chamadas[1]["required"]
+
+    # Without "Sobre você" it's the first summary again, already cached: no new call, no paraVoce.
+    assert asyncio.run(resumo.resumir(p, com_leitor=False)).paraVoce is None
+    assert len(chamadas) == 2
 
 
 def test_contexto_omite_campos_vazios():

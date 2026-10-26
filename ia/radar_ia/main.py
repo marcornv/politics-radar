@@ -60,13 +60,14 @@ async def status() -> Status:
 
 
 @app.post("/resumo", response_model=Resumo)
-async def resumo(p: Proposicao):
+async def resumo(p: Proposicao, com_leitor: bool = True):
+    """`com_leitor=false` in the query writes the summary without "Sobre você" (and without paraVoce)."""
     ativo = provedor_ativo()
     if not ativo:
         return JSONResponse({"erro": "Resumo por IA desativado: configure uma IA em Configurações.", "tipo": "outro"}, 503)
     nome = NOME_PROVEDOR[ativo]
     try:
-        return await resumir(p)
+        return await resumir(p, com_leitor)
     except ErroIA as e:
         log.warning("resumo de %s falhou (%s): %s", p.sigla, e.tipo, e.msg)
         if e.tipo == "chave":

@@ -106,11 +106,12 @@ SCHEMA_COM_LEITOR: dict[str, Any] = {
 CAMPOS = ("sintese", "mudancas", "afetados", "proximoPasso")
 
 
-def montar_system() -> tuple[str, str | None]:
+def montar_system(com_leitor: bool = True) -> tuple[str, str | None]:
     """System prompt from the user's instructions (or the default), the reader context and the fixed rules.
 
-    Returns the prompt and the reader context, if any. Read on every call, like the keys."""
-    leitor = config.chave("IA_CONTEXTO")
+    Returns the prompt and the reader context, if any. Read on every call, like the keys. With
+    `com_leitor=False` the reader context is left out even when one is saved."""
+    leitor = config.chave("IA_CONTEXTO") if com_leitor else None
     partes = [config.chave("IA_INSTRUCOES") or INSTRUCOES_PADRAO]
     if leitor:
         partes.append(
@@ -179,13 +180,15 @@ def validar(d: Any, leitor: str | None = None) -> dict[str, Any]:
     raise ErroIA("outro", "A IA devolveu um resumo incompleto. Tente de novo ou use outro modelo.")
 
 
-async def resumir(p: Proposicao) -> Resumo:
-    """Generated once per provider and model and cached for a week."""
+async def resumir(p: Proposicao, com_leitor: bool = True) -> Resumo:
+    """Generated once per provider and model and cached for a week.
+
+    With and without "Sobre você" the prompt differs, so each version has its own cache entry."""
     provedor = provedor_ativo()
     if not provedor:
         raise ErroIA("outro", "Nenhuma IA configurada.")
 
-    system, leitor = montar_system()
+    system, leitor = montar_system(com_leitor)
     schema = SCHEMA_COM_LEITOR if leitor else SCHEMA
 
     async def gerar() -> dict:
