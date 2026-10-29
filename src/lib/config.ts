@@ -19,10 +19,21 @@ export const CHAVES = [
 export type NomeChave = (typeof CHAVES)[number];
 
 /** Non-secret settings kept in the same file, with the same precedence over `.env.local`. */
-export const AJUSTES = ["IA_PROVEDOR", "COMPATIVEL_URL", "COMPATIVEL_MODELO", "IA_CONTEXTO", "IA_INSTRUCOES"] as const;
+export const AJUSTES = [
+  "IA_PROVEDOR",
+  "COMPATIVEL_URL",
+  "COMPATIVEL_MODELO",
+  "COMPATIVEL_RACIOCINIO",
+  "IA_CONTEXTO",
+  "IA_INSTRUCOES",
+] as const;
 export type NomeAjuste = (typeof AJUSTES)[number];
 
 type Nome = NomeChave | NomeAjuste;
+
+/** `reasoning_effort` sent to the compatible server; unset means the server's default. Mirrors `RACIOCINIOS` in ia/radar_ia/provedores.py. */
+export const RACIOCINIOS = ["none", "low", "medium", "high"] as const;
+export type Raciocinio = (typeof RACIOCINIOS)[number];
 
 /** Lengths accepted for `IA_CONTEXTO` and `IA_INSTRUCOES`. */
 export const LIMITE_CONTEXTO = 600;

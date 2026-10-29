@@ -1,8 +1,9 @@
+import json
 import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from .provedores import (
@@ -12,13 +13,14 @@ from .provedores import (
     Teste,
     configurado,
     login_claude,
+    mensagem,
     modelo_de,
     provedor_ativo,
     provedores_configurados,
     testar_conexao,
 )
 from .agenda import AgendaItem, AgendaRanking, AgendaStatus, agenda_status, rank_items, reader_profile
-from .resumo import INSTRUCOES_PADRAO, Proposicao, Resumo, resumir
+from .resumo import INSTRUCOES_PADRAO, Proposicao, Resumo, resumir, resumir_stream
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("radar_ia")
@@ -59,27 +61,40 @@ async def status() -> Status:
     )
 
 
+DESATIVADO = {"erro": "Resumo por IA desativado: configure uma IA em Configurações.", "tipo": "outro"}
+
+
 @app.post("/resumo", response_model=Resumo)
 async def resumo(p: Proposicao, com_leitor: bool = True):
     """`com_leitor=false` in the query writes the summary without "Sobre você" (and without paraVoce)."""
     ativo = provedor_ativo()
     if not ativo:
-        return JSONResponse({"erro": "Resumo por IA desativado: configure uma IA em Configurações.", "tipo": "outro"}, 503)
-    nome = NOME_PROVEDOR[ativo]
+        return JSONResponse(DESATIVADO, 503)
     try:
         return await resumir(p, com_leitor)
     except ErroIA as e:
         log.warning("resumo de %s falhou (%s): %s", p.sigla, e.tipo, e.msg)
-        if e.tipo == "chave":
-            erro = f"A chave da {nome} foi recusada. Troque-a em Configurações."
-        elif e.tipo == "limite":
-            erro = f"Limite de uso da {nome} atingido. Tente em alguns minutos."
-        else:
-            erro = e.msg
-        return JSONResponse({"erro": erro, "tipo": e.tipo}, 502)
+        return JSONResponse({"erro": mensagem(e, ativo), "tipo": e.tipo}, 502)
     except Exception:
         log.exception("erro inesperado no resumo de %s", p.sigla)
         return JSONResponse({"erro": "Não foi possível gerar o resumo agora.", "tipo": "outro"}, 502)
+
+
+@app.post("/resumo/stream")
+async def resumo_stream(p: Proposicao, com_leitor: bool = True):
+    """`/resumo` as NDJSON, one event per line (see `resumir_stream`), so the page can show the summary being written."""
+    if not provedor_ativo():
+        return JSONResponse(DESATIVADO, 503)
+
+    async def linhas():
+        try:
+            async for e in resumir_stream(p, com_leitor):
+                yield json.dumps(e, ensure_ascii=False) + "\n"
+        except Exception:
+            log.exception("erro inesperado no resumo de %s", p.sigla)
+            yield json.dumps({"tipo": "erro", "erro": "Não foi possível gerar o resumo agora."}, ensure_ascii=False) + "\n"
+
+    return StreamingResponse(linhas(), media_type="application/x-ndjson")
 
 
 class RankRequest(BaseModel):

@@ -10,7 +10,7 @@ from radar_ia.resumo import FORMATO, INSTRUCOES_PADRAO, Proposicao, Tramitacao, 
 
 VARIAVEIS = [
     "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GROQ_API_KEY", "COMPATIVEL_URL", "COMPATIVEL_MODELO",
-    "IA_PROVEDOR", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_PROFILE", "IA_CONTEXTO", "IA_INSTRUCOES",
+    "IA_PROVEDOR", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_PROFILE", "IA_CONTEXTO", "IA_INSTRUCOES", "COMPATIVEL_RACIOCINIO",
 ]
 
 
@@ -139,3 +139,126 @@ def test_arquivo_tem_prioridade_sobre_env(chaves, monkeypatch):
     assert provedores.modelo_de("compativel") == "do-app"
     chaves(COMPATIVEL_MODELO="  ")
     assert provedores.modelo_de("compativel") == "do-env"
+
+
+CLIENTE_REAL = provedores.httpx.AsyncClient
+
+
+def _servidor_compativel(monkeypatch, resposta: str) -> list[dict]:
+    """Answers every chat completion with the server-sent events in `resposta`; returns the request bodies sent."""
+    corpos: list[dict] = []
+
+    def responder(req):
+        corpos.append(json.loads(req.content))
+        return provedores.httpx.Response(200, text=resposta, headers={"Content-Type": "text/event-stream"})
+
+    monkeypatch.setattr(
+        provedores.httpx, "AsyncClient", lambda **kw: CLIENTE_REAL(transport=provedores.httpx.MockTransport(responder), **kw)
+    )
+    return corpos
+
+
+def _resposta(content: str, finish: str = "stop", reasoning: str | None = None) -> str:
+    """A streamed chat completion: optional reasoning, the content in two deltas, then the finish reason."""
+    meio = len(content) // 2
+    deltas = [{"reasoning": reasoning}] if reasoning else []
+    deltas += [{"content": c} for c in (content[:meio], content[meio:]) if c]
+    pedacos = [{"model": "m", "choices": [{"delta": d, "finish_reason": None}]} for d in deltas]
+    pedacos.append({"model": "m", "choices": [{"delta": {}, "finish_reason": finish}]})
+    return "".join(f"data: {json.dumps(p)}\n\n" for p in pedacos) + "data: [DONE]\n\n"
+
+
+def test_raciocinio_vai_so_quando_escolhido(chaves, monkeypatch):
+    corpos = _servidor_compativel(monkeypatch, _resposta('{"a": 1}'))
+    chaves(COMPATIVEL_URL="http://x/v1", COMPATIVEL_MODELO="m")
+    asyncio.run(provedores.gerar_json("compativel", "s", "u", {}))
+    chaves(COMPATIVEL_URL="http://x/v1", COMPATIVEL_MODELO="m", COMPATIVEL_RACIOCINIO="none")
+    asyncio.run(provedores.gerar_json("compativel", "s", "u", {}))
+    chaves(COMPATIVEL_URL="http://x/v1", COMPATIVEL_MODELO="m", COMPATIVEL_RACIOCINIO="qualquer")
+    asyncio.run(provedores.gerar_json("compativel", "s", "u", {}))
+    assert [c.get("reasoning_effort") for c in corpos] == [None, "none", None]
+
+
+def test_modelo_que_nao_pensa_ignora_o_raciocinio(chaves, monkeypatch):
+    corpos: list[dict] = []
+
+    def responder(req):
+        corpos.append(json.loads(req.content))
+        if "reasoning_effort" in corpos[-1]:
+            return provedores.httpx.Response(400, json={"error": {"message": '"m" does not support thinking'}})
+        return provedores.httpx.Response(200, text=_resposta('{"a": 1}'))
+
+    monkeypatch.setattr(
+        provedores.httpx, "AsyncClient", lambda **kw: CLIENTE_REAL(transport=provedores.httpx.MockTransport(responder), **kw)
+    )
+    chaves(COMPATIVEL_URL="http://x/v1", COMPATIVEL_MODELO="m", COMPATIVEL_RACIOCINIO="low")
+    assert asyncio.run(provedores.gerar_json("compativel", "s", "u", {})) == ({"a": 1}, "m")
+    # Second request: same structured output, only the effort dropped.
+    assert len(corpos) == 2 and corpos[1]["response_format"]["type"] == "json_schema" and "reasoning_effort" not in corpos[1]
+
+
+def test_schema_vai_no_prompt_so_da_api_compativel(chaves, monkeypatch):
+    corpos = _servidor_compativel(monkeypatch, _resposta('{"a": 1}'))
+    schema = {"type": "object", "properties": {"sintese": {"type": "string"}}}
+    chaves(COMPATIVEL_URL="http://x/v1", COMPATIVEL_MODELO="m", OPENAI_API_KEY="sk-x")
+    asyncio.run(provedores.gerar_json("compativel", "Sistema.", "u", schema))
+    asyncio.run(provedores.gerar_json("openai", "Sistema.", "u", schema))
+    compativel, openai = (c["messages"][0]["content"] for c in corpos)
+    assert compativel.startswith("Sistema.") and '"sintese"' in compativel
+    assert openai == "Sistema."
+
+
+def test_erro_explica_limite_de_tokens(chaves, monkeypatch):
+    chaves(COMPATIVEL_URL="http://x/v1", COMPATIVEL_MODELO="m")
+    casos = [
+        (_resposta("", "length", reasoning="Vamos pensar..."), provedores.PENSOU_DEMAIS),
+        (_resposta('{"sintese": "cort', "length"), provedores.CORTADA),
+        (_resposta("sem json"), "A IA devolveu uma resposta fora do formato esperado."),
+    ]
+    for resposta, esperado in casos:
+        _servidor_compativel(monkeypatch, resposta)
+        with pytest.raises(ErroIA) as e:
+            asyncio.run(provedores.gerar_json("compativel", "s", "u", {}))
+        assert e.value.msg == esperado
+
+
+RESUMO_OK = {"sintese": "Eleva o teto do MEI.", "mudancas": ["Teto sobe"], "afetados": "MEIs.", "proximoPasso": "Relator na CAE."}
+PL = Proposicao(id="1", casa="senado", sigla="PLP 186/2026", tipo="PLP", ementa="X.")
+
+
+def _eventos(com_leitor: bool = False) -> list[dict]:
+    async def juntar():
+        return [e async for e in resumo.resumir_stream(PL, com_leitor)]
+
+    return asyncio.run(juntar())
+
+
+def test_stream_mostra_o_progresso_e_termina_validado(chaves, tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "CACHE_DIR", tmp_path / "cache")
+    chaves(COMPATIVEL_URL="http://x/v1", COMPATIVEL_MODELO="m")
+    corpos = _servidor_compativel(monkeypatch, _resposta(json.dumps({**RESUMO_OK, "extra": 1}), reasoning="hmm"))
+
+    eventos = _eventos()
+    assert [e["tipo"] for e in eventos] == ["pensando", "texto", "texto", "pronto"]
+    assert "".join(e["delta"] for e in eventos if e["tipo"] == "texto") == json.dumps({**RESUMO_OK, "extra": 1})
+    final = eventos[-1]["resumo"]
+    assert {k: final[k] for k in RESUMO_OK} == RESUMO_OK and "extra" not in final and final["modelo"] == "m"
+    assert corpos[0]["stream"] is True and corpos[0]["max_tokens"] == 8000
+
+    # Second time it comes from the cache, without calling the model.
+    assert [e["tipo"] for e in _eventos()] == ["pronto"] and len(corpos) == 1
+
+
+def test_stream_explica_falha_e_usa_resumo_antigo(chaves, tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "CACHE_DIR", tmp_path / "cache")
+    chaves(COMPATIVEL_URL="http://x/v1", COMPATIVEL_MODELO="m")
+    _servidor_compativel(monkeypatch, _resposta("", "length", reasoning="Vamos pensar..."))
+    assert _eventos()[-1] == {"tipo": "erro", "erro": provedores.PENSOU_DEMAIS}
+
+    # A summary older than the cache TTL is still better than an error.
+    _servidor_compativel(monkeypatch, _resposta(json.dumps(RESUMO_OK)))
+    _eventos()
+    monkeypatch.setattr(resumo.cache, "WEEK", -1)
+    _servidor_compativel(monkeypatch, _resposta("sem json"))
+    final = _eventos()[-1]
+    assert final["tipo"] == "pronto" and final["resumo"]["sintese"] == RESUMO_OK["sintese"]

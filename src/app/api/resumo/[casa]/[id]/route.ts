@@ -1,5 +1,5 @@
 import { ehMesmaOrigem } from "@/lib/acesso";
-import { ErroIA, resumir } from "@/lib/ia";
+import { ErroIA, resumirStream } from "@/lib/ia";
 import { proposicao } from "@/lib/legislativo";
 import { resumoDisponivel } from "@/lib/resumo";
 import { isCasa } from "@/lib/types";
@@ -21,7 +21,15 @@ export async function POST(req: Request, ctx: RouteContext<"/api/resumo/[casa]/[
   if (!p) return Response.json({ erro: "Não foi possível carregar a proposição na fonte oficial." }, { status: 502 });
 
   try {
-    return Response.json(await resumir(p, comLeitor));
+    // Passed on as it arrives, so the card can show the summary being written (see EventoResumo).
+    return new Response(await resumirStream(p, comLeitor), {
+      headers: {
+        "Content-Type": "application/x-ndjson; charset=utf-8",
+        "Cache-Control": "no-store",
+        // Keeps a reverse proxy in front of the Radar from holding the stream back.
+        "X-Accel-Buffering": "no",
+      },
+    });
   } catch (e) {
     const erro = e instanceof ErroIA ? e.message : "Não foi possível gerar o resumo agora.";
     return Response.json({ erro }, { status: 502 });

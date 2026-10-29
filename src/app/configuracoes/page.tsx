@@ -325,6 +325,7 @@ export default async function ConfiguracoesPage() {
           <CompativelForm
             url={chave("COMPATIVEL_URL")}
             modelo={chave("COMPATIVEL_MODELO")}
+            raciocinio={chave("COMPATIVEL_RACIOCINIO")}
             chaveMascarada={chaveCompativel ? mascarar(chaveCompativel) : undefined}
             bloqueado={!local}
           />

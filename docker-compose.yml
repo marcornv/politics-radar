@@ -1,7 +1,8 @@
 # Radar Legislativo with a local AI, no Node or Python needed: `docker compose up`, then open http://localhost:3000.
-# The first start downloads the Ollama model (about 5 GB for the default); summaries work once it finishes.
+# The first start downloads the Ollama model (about 1 GB for the default); summaries work once it finishes.
 # To use Anthropic, OpenAI or Groq instead, paste a key in Configurações; a key saved there wins over Ollama.
 # Other models: OLLAMA_MODEL=qwen2.5:3b (summaries) or EMBEDDING_MODEL=qwen3-embedding:4b (agenda) docker compose up -d
+# Ollama's context window: OLLAMA_CONTEXT_LENGTH=8192 docker compose up -d (smaller uses less RAM; thinking models need room).
 
 services:
   radar:
@@ -13,7 +14,7 @@ services:
       - "127.0.0.1:3000:3000"
     environment:
       COMPATIVEL_URL: http://ollama:11434/v1
-      COMPATIVEL_MODELO: ${OLLAMA_MODEL:-llama3.1:8b}
+      COMPATIVEL_MODELO: ${OLLAMA_MODEL:-lfm3-omni}
       # Embedding model that orders the upcoming agenda for the reader, on request ("Para você" in Votações → Previstas).
       # The 4b is a little more accurate but ~6x slower and ~3.4 GB of RAM on CPU; worth it with a GPU.
       EMBEDDING_URL: http://ollama:11434
@@ -26,8 +27,12 @@ services:
     restart: unless-stopped
 
   ollama:
-    image: ollama/ollama:0.40.11
+    image: ollama/ollama:0.40.13
     # Not published to the host: only the Radar talks to it, over the compose network.
+    environment:
+      # Ollama defaults to 4096 tokens here, which a thinking model can fill before it writes the summary.
+      # The window holds the prompt, the thinking and the answer; a bigger one costs RAM, more so on large models.
+      OLLAMA_CONTEXT_LENGTH: ${OLLAMA_CONTEXT_LENGTH:-16384}
     volumes:
       - ollama:/root/.ollama
     healthcheck:
@@ -47,10 +52,10 @@ services:
 
   # Downloads the models once, then exits. Later starts find it in the volume and finish right away.
   ollama-modelo:
-    image: ollama/ollama:0.40.11
+    image: ollama/ollama:0.40.13
     environment:
       OLLAMA_HOST: ollama:11434
-    entrypoint: ["sh", "-c", "ollama pull ${OLLAMA_MODEL:-llama3.1:8b} && ollama pull ${EMBEDDING_MODEL:-qwen3-embedding:0.6b}"]
+    entrypoint: ["sh", "-c", "ollama pull ${OLLAMA_MODEL:-lfm3-omni} && ollama pull ${EMBEDDING_MODEL:-qwen3-embedding:0.6b}"]
     depends_on:
       ollama:
         condition: service_healthy

@@ -1,29 +1,118 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
-import type { Resumo } from "@/lib/resumo";
+import { useEffect, useState } from "react";
+import { lerParcial } from "@/lib/json-parcial";
+import type { EventoResumo, Resumo } from "@/lib/resumo";
 import type { Casa } from "@/lib/types";
+
+/** While generating: waiting for the first token, reasoning, or writing the answer (shown as it comes). */
+type Gerando = { tipo: "gerando"; inicio: number; fase: "esperando" | "pensando" | "escrevendo"; parcial: Partial<Resumo> | null };
 
 type Estado =
   | { tipo: "inativo" }
-  | { tipo: "carregando" }
+  | Gerando
   | { tipo: "ok"; resumo: Resumo; comLeitor: boolean }
   | { tipo: "erro"; msg: string };
 
-async function pedirResumo(casa: Casa, id: string, comLeitor: boolean): Promise<Estado> {
+const FALHA = "Falha ao gerar o resumo.";
+
+/** Reads the route's NDJSON stream (one `EventoResumo` per line), reporting each step through `mostrar`. */
+async function pedirResumo(casa: Casa, id: string, comLeitor: boolean, mostrar: (e: Estado) => void) {
+  let atual: Gerando = { tipo: "gerando", inicio: Date.now(), fase: "esperando", parcial: null };
+  let texto = "";
+  mostrar(atual);
   try {
     const r = await fetch(`/api/resumo/${casa}/${encodeURIComponent(id)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ comLeitor }),
     });
-    const j = await r.json();
-    if (!r.ok) throw new Error(j.erro ?? "Falha ao gerar o resumo.");
-    return { tipo: "ok", resumo: j as Resumo, comLeitor };
+    // Checks that fail before the model is called still answer with a JSON error.
+    if (!r.ok || !r.body || !r.headers.get("Content-Type")?.includes("ndjson")) {
+      const j = await r.json().catch(() => null);
+      throw new Error(j?.erro ?? FALHA);
+    }
+    const leitor = r.body.pipeThrough(new TextDecoderStream()).getReader();
+    let resto = "";
+    for (;;) {
+      const { value, done } = await leitor.read();
+      if (done) break;
+      const linhas = (resto + value).split("\n");
+      resto = linhas.pop() ?? "";
+      for (const linha of linhas) {
+        if (!linha.trim()) continue;
+        const e = JSON.parse(linha) as EventoResumo;
+        if (e.tipo === "pronto") return mostrar({ tipo: "ok", resumo: e.resumo, comLeitor });
+        if (e.tipo === "erro") throw new Error(e.erro);
+        if (e.tipo === "pensando") {
+          if (atual.fase !== "escrevendo") atual = { ...atual, fase: "pensando" };
+        } else {
+          texto += e.delta;
+          // A cut that can't be parsed yet keeps the last good version on screen.
+          atual = { ...atual, fase: "escrevendo", parcial: lerParcial<Resumo>(texto) ?? atual.parcial };
+        }
+        mostrar(atual);
+      }
+    }
+    throw new Error("A resposta da IA terminou antes do resumo.");
   } catch (e) {
-    return { tipo: "erro", msg: e instanceof Error ? e.message : "Falha ao gerar o resumo." };
+    mostrar({ tipo: "erro", msg: e instanceof Error ? e.message : FALHA });
   }
+}
+
+const FASE: Record<Gerando["fase"], string> = {
+  esperando: "Gerando resumo…",
+  pensando: "Pensando…",
+  escrevendo: "Escrevendo…",
+};
+
+/** Seconds since `inicio`, ticking once a second. */
+function Decorrido({ inicio }: { inicio: number }) {
+  const [agora, setAgora] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setAgora(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  return <>{Math.max(0, Math.floor((agora - inicio) / 1000))} s</>;
+}
+
+/** The summary's fields; also used while they are still being written, so any of them may be missing. */
+function Campos({ resumo }: { resumo: Partial<Resumo> }) {
+  const texto = (v: unknown): v is string => typeof v === "string" && v.trim() !== "";
+  const mudancas = Array.isArray(resumo.mudancas) ? resumo.mudancas.filter(texto) : [];
+  return (
+    <div className="space-y-3 text-[14px] leading-relaxed text-ink">
+      {texto(resumo.sintese) && <p>{resumo.sintese}</p>}
+      {mudancas.length > 0 && (
+        <ul className="space-y-1 pl-4 text-ink-2 [list-style:square] marker:text-phosphor-dim">
+          {mudancas.map((m, i) => (
+            <li key={i}>{m}</li>
+          ))}
+        </ul>
+      )}
+      <dl className="grid gap-x-4 gap-y-1 text-[13px] sm:grid-cols-[110px_1fr]">
+        {texto(resumo.paraVoce) && (
+          <>
+            <dt className="text-phosphor">Para você</dt>
+            <dd className="text-ink">{resumo.paraVoce}</dd>
+          </>
+        )}
+        {texto(resumo.afetados) && (
+          <>
+            <dt className="text-muted">Quem é afetado</dt>
+            <dd className="text-ink-2">{resumo.afetados}</dd>
+          </>
+        )}
+        {texto(resumo.proximoPasso) && (
+          <>
+            <dt className="text-muted">Próximo passo</dt>
+            <dd className="text-ink-2">{resumo.proximoPasso}</dd>
+          </>
+        )}
+      </dl>
+    </div>
+  );
 }
 
 /**
@@ -47,8 +136,7 @@ export function ResumoCard({
 
   const gerar = (usarPerfil = comLeitor) => {
     setComLeitor(usarPerfil);
-    setEstado({ tipo: "carregando" });
-    void pedirResumo(casa, id, usarPerfil).then(setEstado);
+    void pedirResumo(casa, id, usarPerfil, setEstado);
   };
 
   if (!disponivel) {
@@ -100,14 +188,25 @@ export function ResumoCard({
         </div>
       )}
 
-      {estado.tipo === "carregando" && (
-        <div role="status" className="space-y-2">
-          <span className="sr-only">Gerando resumo</span>
-          <div className="relative h-3 w-4/5 overflow-hidden rounded bg-line">
-            <span className="scanline absolute inset-y-0 left-0 w-1/3 bg-phosphor/30" />
-          </div>
-          <div className="h-3 w-3/5 rounded bg-line" />
-          <div className="h-3 w-2/3 rounded bg-line" />
+      {estado.tipo === "gerando" && (
+        <div className="space-y-3">
+          <p role="status" className="text-[12px] text-muted">
+            {FASE[estado.fase]} <Decorrido inicio={estado.inicio} />
+          </p>
+          {estado.parcial ? (
+            // Re-read on every token; screen readers get the finished summary instead.
+            <div aria-hidden="true">
+              <Campos resumo={estado.parcial} />
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <div className="relative h-3 w-4/5 overflow-hidden rounded bg-line">
+                <span className="scanline absolute inset-y-0 left-0 w-1/3 bg-phosphor/30" />
+              </div>
+              <div className="h-3 w-3/5 rounded bg-line" />
+              <div className="h-3 w-2/3 rounded bg-line" />
+            </div>
+          )}
         </div>
       )}
 
@@ -120,30 +219,7 @@ export function ResumoCard({
         </p>
       )}
 
-      {estado.tipo === "ok" && (
-        <div className="space-y-3 text-[14px] leading-relaxed text-ink">
-          <p>{estado.resumo.sintese}</p>
-          {estado.resumo.mudancas.length > 0 && (
-            <ul className="space-y-1 pl-4 text-ink-2 [list-style:square] marker:text-phosphor-dim">
-              {estado.resumo.mudancas.map((m, i) => (
-                <li key={i}>{m}</li>
-              ))}
-            </ul>
-          )}
-          <dl className="grid gap-x-4 gap-y-1 text-[13px] sm:grid-cols-[110px_1fr]">
-            {estado.resumo.paraVoce && (
-              <>
-                <dt className="text-phosphor">Para você</dt>
-                <dd className="text-ink">{estado.resumo.paraVoce}</dd>
-              </>
-            )}
-            <dt className="text-muted">Quem é afetado</dt>
-            <dd className="text-ink-2">{estado.resumo.afetados}</dd>
-            <dt className="text-muted">Próximo passo</dt>
-            <dd className="text-ink-2">{estado.resumo.proximoPasso}</dd>
-          </dl>
-        </div>
-      )}
+      {estado.tipo === "ok" && <Campos resumo={estado.resumo} />}
 
       {estado.tipo === "ok" && temPerfil && (
         <button
