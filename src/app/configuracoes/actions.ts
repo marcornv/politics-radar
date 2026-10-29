@@ -2,7 +2,7 @@
 
 import { refresh } from "next/cache";
 import { ehAcessoLocal } from "@/lib/acesso";
-import { CHAVES, chave, LIMITE_CONTEXTO, LIMITE_INSTRUCOES, type NomeChave, salvar } from "@/lib/config";
+import { CHAVES, chave, LIMITE_CONTEXTO, LIMITE_INSTRUCOES, type NomeChave, RACIOCINIOS, salvar } from "@/lib/config";
 import { ehProvedor, NOME_PROVEDOR, type Provedor, statusIA, type Teste, testarConexao } from "@/lib/ia";
 
 export type EstadoChave = { tipo: "ok" | "erro" | "aviso"; msg: string } | null;
@@ -126,13 +126,14 @@ export async function acaoCompativel(_prev: EstadoChave, form: FormData): Promis
   if (!(await ehAcessoLocal())) return BLOQUEADO;
 
   if (form.get("intent") === "remover") {
-    await salvar({ COMPATIVEL_URL: null, COMPATIVEL_MODELO: null, COMPATIVEL_API_KEY: null });
+    await salvar({ COMPATIVEL_URL: null, COMPATIVEL_MODELO: null, COMPATIVEL_API_KEY: null, COMPATIVEL_RACIOCINIO: null });
     refresh();
     return { tipo: "ok", msg: "Configuração removida." };
   }
 
   const bruta = String(form.get("url") ?? "").trim();
   const modelo = String(form.get("modelo") ?? "").trim();
+  const raciocinio = String(form.get("raciocinio") ?? "");
   // An empty key field on an existing setup keeps the saved key.
   const chaveApi = String(form.get("valor") ?? "").trim() || chave("COMPATIVEL_API_KEY");
 
@@ -145,13 +146,14 @@ export async function acaoCompativel(_prev: EstadoChave, form: FormData): Promis
   if (url.protocol !== "http:" && url.protocol !== "https:") return { tipo: "erro", msg: "A URL precisa começar com http:// ou https://." };
   if (url.username || url.password) return { tipo: "erro", msg: "Não coloque usuário e senha na URL; use o campo de chave." };
   if (!modelo) return { tipo: "erro", msg: "Informe o nome do modelo." };
+  if (raciocinio && !(RACIOCINIOS as readonly string[]).includes(raciocinio)) return { tipo: "erro", msg: "Escolha um nível de raciocínio da lista." };
   if (chaveApi && /\s/.test(chaveApi)) return { tipo: "erro", msg: "A chave não pode ter espaços." };
 
   const base = url.href.replace(/\/+$/, "");
   const t = await testarConexao("compativel", { chave: chaveApi, url: base });
   if (t === "recusada") return { tipo: "erro", msg: "O servidor recusou a chave e nada foi salvo." };
 
-  await salvar({ COMPATIVEL_URL: base, COMPATIVEL_MODELO: modelo, COMPATIVEL_API_KEY: chaveApi ?? null });
+  await salvar({ COMPATIVEL_URL: base, COMPATIVEL_MODELO: modelo, COMPATIVEL_API_KEY: chaveApi ?? null, COMPATIVEL_RACIOCINIO: raciocinio || null });
   refresh();
   if (url.protocol === "http:" && chaveApi && !LOCAL.test(url.hostname)) {
     return { tipo: "aviso", msg: "Salvo, mas a URL usa http:// fora deste computador: a chave vai trafegar sem criptografia." };

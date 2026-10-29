@@ -1,6 +1,5 @@
 import "server-only";
 import type { NomeChave } from "./config";
-import type { Resumo } from "./resumo";
 import type { ProposicaoDetalhe } from "./types";
 
 /**
@@ -58,24 +57,29 @@ export async function statusIA(): Promise<StatusIA | null> {
   }
 }
 
-/** `comLeitor: false` writes the summary without "Sobre você", even when one is saved. */
-export async function resumir(p: ProposicaoDetalhe, comLeitor = true): Promise<Resumo> {
+/**
+ * Asks for a summary and returns the service's NDJSON event stream, one line per `EventoResumo`, for the
+ * route to pass on as is. `comLeitor: false` writes it without "Sobre você", even when one is saved.
+ */
+export async function resumirStream(p: ProposicaoDetalhe, comLeitor = true): Promise<ReadableStream<Uint8Array>> {
   let r: Response;
   try {
-    r = await fetch(`${IA_URL}/resumo?com_leitor=${comLeitor}`, {
+    r = await fetch(`${IA_URL}/resumo/stream?com_leitor=${comLeitor}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(p),
-      // Local models can take up to two minutes, plus a retry without structured outputs.
-      signal: AbortSignal.timeout(300_000),
+      // A thinking model on a CPU can take several minutes; the page shows its progress meanwhile.
+      signal: AbortSignal.timeout(600_000),
       cache: "no-store",
     });
   } catch {
     throw new ErroIA("O serviço de IA não está rodando. Inicie o Radar com npm run dev.");
   }
-  const j = await r.json().catch(() => null);
-  if (!r.ok) throw new ErroIA(j?.erro ?? "Não foi possível gerar o resumo agora.");
-  return j as Resumo;
+  if (!r.ok || !r.body) {
+    const j = await r.json().catch(() => null);
+    throw new ErroIA(j?.erro ?? "Não foi possível gerar o resumo agora.");
+  }
+  return r.body;
 }
 
 export interface AgendaItemInput {

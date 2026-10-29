@@ -16,6 +16,13 @@ export interface Resumo {
   geradoEm: string;
 }
 
+/** One line of the summary stream from `/api/resumo/[casa]/[id]` (`resumir_stream` in ia/radar_ia/resumo.py). */
+export type EventoResumo =
+  | { tipo: "pensando" }
+  | { tipo: "texto"; delta: string }
+  | { tipo: "pronto"; resumo: Resumo }
+  | { tipo: "erro"; erro: string };
+
 export const resumoDisponivel = async () => !!(await statusIA())?.ativo;
 
 /** Props for ResumoCard: whether an AI is configured and whether "Sobre você" is filled in. */

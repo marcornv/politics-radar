@@ -1,14 +1,19 @@
 """AI providers that can write the plain-language summaries, and how to call each one."""
 
 import json
+import logging
 import os
 import re
+import time
+from collections.abc import AsyncIterator
 from typing import Any, Literal, get_args
 
 import anthropic
 import httpx
 
 from .config import chave
+
+log = logging.getLogger("radar_ia")
 
 Provedor = Literal["anthropic", "openai", "groq", "compativel"]
 PROVEDORES: tuple[Provedor, ...] = get_args(Provedor)
@@ -102,21 +107,79 @@ def ler_json(bruto: str | None) -> Any:
     raise ErroIA("outro", "A IA devolveu uma resposta fora do formato esperado.")
 
 
+def mensagem(e: ErroIA, p: Provedor) -> str:
+    """What the page shows for a failure of provider `p`."""
+    if e.tipo == "chave":
+        return f"A chave da {NOME_PROVEDOR[p]} foi recusada. Troque-a em Configurações."
+    if e.tipo == "limite":
+        return f"Limite de uso da {NOME_PROVEDOR[p]} atingido. Tente em alguns minutos."
+    return e.msg
+
+
 RECUSA = "O modelo não gerou resumo para esta proposição."
+PENSOU_DEMAIS = (
+    "O modelo gastou todo o limite de tokens pensando e não chegou a escrever o resumo. "
+    "Em Configurações, diminua ou desligue o raciocínio da API compatível."
+)
+CORTADA = "A resposta do modelo foi cortada no limite de tokens antes de terminar o resumo."
+
+# `reasoning_effort` values a compatible server may accept; empty means not sending it (server default).
+RACIOCINIOS = ("none", "low", "medium", "high")
+
+
+Evento = dict[str, Any]
+"""One step of a streamed answer: {"tipo": "pensando"}, {"tipo": "texto", "delta": str} or, last, {"tipo": "fim", "dados", "modelo"}."""
+
+# While a model reasons nothing else is sent, so repeat "pensando" now and then to keep the connection busy.
+PULSO = 5.0
 
 
 async def gerar_json(p: Provedor, system: str, user: str, schema: dict) -> tuple[Any, str]:
     """Asks provider `p` for JSON following `schema`. Returns (data, model that answered)."""
-    if p == "anthropic":
-        return await _via_anthropic(system, user, schema)
-    return await _via_openai(p, system, user, schema)
+    async for e in gerar_json_stream(p, system, user, schema):
+        if e["tipo"] == "fim":
+            return e["dados"], e["modelo"]
+    raise ErroIA("outro", "A IA não terminou a resposta.")
 
 
-async def _via_anthropic(system: str, user: str, schema: dict) -> tuple[Any, str]:
+def gerar_json_stream(p: Provedor, system: str, user: str, schema: dict) -> AsyncIterator[Evento]:
+    """`gerar_json` as it is written, so the page can show progress; the last event carries the parsed JSON."""
+    return _via_anthropic(system, user, schema) if p == "anthropic" else _via_openai(p, system, user, schema)
+
+
+def _ler_resposta(texto: str, fim: str | None, pensou: bool) -> Any:
+    """`ler_json`, explaining the failure when the answer stopped at the token limit."""
+    try:
+        return ler_json(texto)
+    except ErroIA:
+        if fim != "length":
+            raise
+        # Thinking comes apart from the answer; an empty answer after it means the model never got there.
+        raise ErroIA("outro", PENSOU_DEMAIS if pensou and not texto.strip() else CORTADA) from None
+
+
+class _Pulso:
+    """Says "pensando" on the first reasoning token and then at most every PULSO seconds."""
+
+    def __init__(self) -> None:
+        self.pensou = False
+        self._ultimo = 0.0
+
+    def agora(self) -> bool:
+        self.pensou = True
+        if time.monotonic() - self._ultimo < PULSO:
+            return False
+        self._ultimo = time.monotonic()
+        return True
+
+
+async def _via_anthropic(system: str, user: str, schema: dict) -> AsyncIterator[Evento]:
     api_key = chave("ANTHROPIC_API_KEY")
     client = anthropic.AsyncAnthropic(api_key=api_key) if api_key else anthropic.AsyncAnthropic()
+    texto: list[str] = []
+    pulso = _Pulso()
     try:
-        res = await client.beta.messages.create(
+        async with client.beta.messages.stream(
             model=modelo_de("anthropic"),
             max_tokens=4000,
             betas=["server-side-fallback-2026-07-01"],
@@ -124,7 +187,14 @@ async def _via_anthropic(system: str, user: str, schema: dict) -> tuple[Any, str
             output_config={"effort": "low", "format": {"type": "json_schema", "schema": schema}},
             system=system,
             messages=[{"role": "user", "content": user}],
-        )
+        ) as stream:
+            async for ev in stream:
+                if ev.type == "text":
+                    texto.append(ev.text)
+                    yield {"tipo": "texto", "delta": ev.text}
+                elif ev.type == "thinking" and pulso.agora():
+                    yield {"tipo": "pensando"}
+            res = await stream.get_final_message()
     except (anthropic.AuthenticationError, anthropic.PermissionDeniedError) as e:
         raise ErroIA("chave", "Chave recusada.", e.status_code) from e
     except anthropic.RateLimitError as e:
@@ -135,8 +205,8 @@ async def _via_anthropic(system: str, user: str, schema: dict) -> tuple[Any, str
         raise ErroIA("outro", "Não deu para falar com a Anthropic agora.") from e
     if res.stop_reason == "refusal":
         raise ErroIA("outro", RECUSA)
-    texto = next((b.text for b in res.content if b.type == "text"), None)
-    return ler_json(texto), res.model
+    fim = "length" if res.stop_reason == "max_tokens" else res.stop_reason
+    yield {"tipo": "fim", "dados": _ler_resposta("".join(texto), fim, pulso.pensou), "modelo": res.model}
 
 
 def _base_de(p: Provedor, url: str | None = None) -> str:
@@ -149,11 +219,15 @@ def _cabecalhos(chave_api: str | None) -> dict[str, str]:
     return {"Content-Type": "application/json", **({"Authorization": f"Bearer {chave_api}"} if chave_api else {})}
 
 
-async def _via_openai(p: Provedor, system: str, user: str, schema: dict) -> tuple[Any, str]:
+async def _via_openai(p: Provedor, system: str, user: str, schema: dict) -> AsyncIterator[Evento]:
     """OpenAI, Groq and anything that speaks the OpenAI Chat Completions API (Ollama, LM Studio, OpenRouter)."""
     modelo = modelo_de(p)
-    # Local models can be slow on modest hardware.
+    # Local models can be slow on modest hardware. Streaming, this is the wait between tokens, not for the whole answer.
     timeout = 120 if p == "compativel" else 60
+    # Thinking models on Ollama can fill the whole context reasoning; "none" turns that off.
+    raciocinio = chave("COMPATIVEL_RACIOCINIO") if p == "compativel" else None
+    extra = {"reasoning_effort": raciocinio} if raciocinio in RACIOCINIOS else {}
+    sem_conexao = f"Não deu para falar com a {NOME_PROVEDOR[p]} agora."
 
     async def pedir(cliente: httpx.AsyncClient, formato: dict, sistema: str) -> httpx.Response:
         corpo = {
@@ -161,35 +235,75 @@ async def _via_openai(p: Provedor, system: str, user: str, schema: dict) -> tupl
             "messages": [{"role": "system", "content": sistema}, {"role": "user", "content": user}],
             "response_format": formato,
             # Reasoning models spend part of the budget thinking; local servers only know the older name.
-            **({"max_tokens": 4000} if p == "compativel" else {"max_completion_tokens": 8000}),
+            **({"max_tokens": 8000} if p == "compativel" else {"max_completion_tokens": 8000}),
+            "stream": True,
+            **extra,
         }
         try:
-            return await cliente.post(f"{_base_de(p)}/chat/completions", json=corpo, headers=_cabecalhos(chave(CHAVE_DO_PROVEDOR[p])))
+            req = cliente.build_request(
+                "POST", f"{_base_de(p)}/chat/completions", json=corpo, headers=_cabecalhos(chave(CHAVE_DO_PROVEDOR[p]))
+            )
+            return await cliente.send(req, stream=True)
         except (httpx.HTTPError, httpx.InvalidURL) as e:
-            raise ErroIA("outro", f"Não deu para falar com a {NOME_PROVEDOR[p]} agora.") from e
+            raise ErroIA("outro", sem_conexao) from e
 
+    texto: list[str] = []
+    fim: str | None = None
+    pulso = _Pulso()
+    com_schema = f"{system}\n\nResponda apenas com um objeto JSON que siga este JSON Schema:\n{json.dumps(schema, ensure_ascii=False)}"
     async with httpx.AsyncClient(timeout=timeout) as cliente:
-        r = await pedir(cliente, {"type": "json_schema", "json_schema": {"name": "resumo", "strict": True, "schema": schema}}, system)
+        # A local server enforces the schema on the output but never shows it to the model; thinking models
+        # then spend their whole budget guessing the fields, so compatible servers also get it in the prompt.
+        estruturado = {"type": "json_schema", "json_schema": {"name": "resumo", "strict": True, "schema": schema}}
+        r = await pedir(cliente, estruturado, com_schema if p == "compativel" else system)
+        # A model that can't think rejects any effort but "none" (Ollama: "does not support thinking");
+        # there is no reasoning to limit then, so ask again without it.
+        if r.status_code == 400 and extra and re.search(r"think|reason", (await r.aread()).decode(errors="replace"), re.I):
+            log.info("%s não pensa; pedindo de novo sem reasoning_effort", modelo)
+            await r.aclose()
+            extra.clear()
+            r = await pedir(cliente, estruturado, com_schema)
         # Models without structured outputs reject json_schema; fall back to plain JSON mode with the schema in the prompt.
         if r.status_code == 400:
-            r = await pedir(
-                cliente,
-                {"type": "json_object"},
-                f"{system}\n\nResponda apenas com um objeto JSON que siga este JSON Schema:\n{json.dumps(schema, ensure_ascii=False)}",
-            )
+            await r.aclose()
+            r = await pedir(cliente, {"type": "json_object"}, com_schema)
+        try:
+            if r.status_code in (401, 403):
+                raise ErroIA("chave", "Chave recusada.", r.status_code)
+            if r.status_code == 429:
+                raise ErroIA("limite", "Limite de uso atingido.", 429)
+            if not r.is_success:
+                raise ErroIA("outro", f"A {NOME_PROVEDOR[p]} respondeu com erro {r.status_code}.", r.status_code)
+            # Server-sent events: one `data: {chunk}` line per delta, then `data: [DONE]`.
+            async for linha in r.aiter_lines():
+                if not linha.startswith("data:"):
+                    continue
+                dado = linha[5:].strip()
+                if dado == "[DONE]":
+                    break
+                try:
+                    j = json.loads(dado)
+                except ValueError:
+                    continue
+                if j.get("error"):
+                    raise ErroIA("outro", f"A {NOME_PROVEDOR[p]} interrompeu a resposta com um erro.")
+                modelo = j.get("model") or modelo
+                escolha = (j.get("choices") or [{}])[0] or {}
+                delta = escolha.get("delta") or {}
+                if delta.get("refusal"):
+                    raise ErroIA("outro", RECUSA)
+                if (delta.get("reasoning") or delta.get("reasoning_content")) and pulso.agora():
+                    yield {"tipo": "pensando"}
+                if delta.get("content"):
+                    texto.append(delta["content"])
+                    yield {"tipo": "texto", "delta": delta["content"]}
+                fim = escolha.get("finish_reason") or fim
+        except httpx.HTTPError as e:
+            raise ErroIA("outro", sem_conexao) from e
+        finally:
+            await r.aclose()
 
-    if r.status_code in (401, 403):
-        raise ErroIA("chave", "Chave recusada.", r.status_code)
-    if r.status_code == 429:
-        raise ErroIA("limite", "Limite de uso atingido.", 429)
-    if not r.is_success:
-        raise ErroIA("outro", f"A {NOME_PROVEDOR[p]} respondeu com erro {r.status_code}.", r.status_code)
-
-    j = r.json()
-    msg = ((j.get("choices") or [{}])[0] or {}).get("message") or {}
-    if msg.get("refusal"):
-        raise ErroIA("outro", RECUSA)
-    return ler_json(msg.get("content")), j.get("model") or modelo
+    yield {"tipo": "fim", "dados": _ler_resposta("".join(texto), fim, pulso.pensou), "modelo": modelo}
 
 
 async def testar_conexao(p: Provedor, chave_api: str | None = None, url: str | None = None) -> Teste:

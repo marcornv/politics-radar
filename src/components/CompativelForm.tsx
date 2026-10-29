@@ -7,15 +7,27 @@ import { TOM } from "./ChaveForm";
 const CAMPO =
   "w-full rounded-md border border-line bg-bg px-3 py-2 font-mono text-[13px] text-ink placeholder:font-sans placeholder:text-muted disabled:opacity-50";
 
+/** `reasoning_effort` choices; the values mirror `RACIOCINIOS` in src/lib/config.ts (server-only, so not imported here). */
+const RACIOCINIO: { valor: string; rotulo: string }[] = [
+  { valor: "", rotulo: "Padrão do servidor" },
+  { valor: "none", rotulo: "Desligado" },
+  { valor: "low", rotulo: "Baixo" },
+  { valor: "medium", rotulo: "Médio" },
+  { valor: "high", rotulo: "Alto" },
+];
+
 /** Base URL + model + optional key for any server that speaks the OpenAI Chat Completions API. */
 export function CompativelForm({
   url,
   modelo,
+  raciocinio,
   chaveMascarada,
   bloqueado,
 }: {
   url?: string;
   modelo?: string;
+  /** `reasoning_effort` sent with each request; undefined leaves it to the server. */
+  raciocinio?: string;
   /** Saved key, masked; undefined when the endpoint has none. */
   chaveMascarada?: string;
   bloqueado: boolean;
@@ -83,6 +95,31 @@ export function CompativelForm({
               className={CAMPO}
             />
           </div>
+          <div className="sm:col-span-2">
+            <label htmlFor="c-raciocinio" className="mb-1 block text-[13px] text-ink-2">
+              Raciocínio
+            </label>
+            <select
+              id="c-raciocinio"
+              name="raciocinio"
+              defaultValue={raciocinio ?? ""}
+              disabled={desligado}
+              aria-describedby="c-raciocinio-ajuda"
+              className={`${CAMPO} sm:w-1/2`}
+            >
+              {RACIOCINIO.map((r) => (
+                <option key={r.valor} value={r.valor}>
+                  {r.rotulo}
+                </option>
+              ))}
+            </select>
+            <p id="c-raciocinio-ajuda" className="mt-1 text-[12px] text-muted">
+              Para modelos que pensam antes de responder (enviado como <code>reasoning_effort</code>). Em modelos pequenos
+              rodando no processador, &ldquo;Desligado&rdquo; deixa o resumo muito mais rápido e evita que o modelo gaste
+              todo o limite pensando. Nem todo modelo respeita o nível: em vários, qualquer opção diferente de
+              &ldquo;Desligado&rdquo; liga o raciocínio completo.
+            </p>
+          </div>
           <div className="flex gap-2 sm:col-span-2">
             <button
               type="submit"
@@ -107,11 +144,13 @@ export function CompativelForm({
         </div>
       ) : (
         <div className="space-y-3">
-          <dl className="grid gap-x-4 gap-y-1 text-[13px] sm:grid-cols-[80px_1fr]">
+          <dl className="grid gap-x-4 gap-y-1 text-[13px] sm:grid-cols-[88px_1fr]">
             <dt className="text-muted">URL</dt>
             <dd className="break-all font-mono text-ink-2">{url}</dd>
             <dt className="text-muted">Modelo</dt>
             <dd className="font-mono text-ink-2">{modelo}</dd>
+            <dt className="text-muted">Raciocínio</dt>
+            <dd className="text-ink-2">{RACIOCINIO.find((r) => r.valor === (raciocinio ?? ""))?.rotulo ?? raciocinio}</dd>
             <dt className="text-muted">Chave</dt>
             <dd className="font-mono text-ink-2">{chaveMascarada ?? "nenhuma"}</dd>
           </dl>

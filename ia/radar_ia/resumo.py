@@ -4,14 +4,15 @@ import hashlib
 import logging
 import re
 import time
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel
 
-from . import config
+from . import cache, config
 from .cache import cached
-from .provedores import ErroIA, gerar_json, modelo_de, provedor_ativo
+from .provedores import ErroIA, Evento, Provedor, gerar_json, gerar_json_stream, mensagem, modelo_de, provedor_ativo
 
 log = logging.getLogger("radar_ia")
 
@@ -198,7 +199,50 @@ async def resumir(p: Proposicao, com_leitor: bool = True) -> Resumo:
         log.info("resumo de %s gerado por %s em %.1fs", p.sigla, modelo, time.perf_counter() - inicio)
         return {**validar(dados, leitor), "modelo": modelo, "geradoEm": datetime.now(UTC).isoformat()}
 
+    return Resumo(**await cached(_chave_cache(provedor, p, system), gerar))
+
+
+def _chave_cache(provedor: Provedor, p: Proposicao, system: str) -> str:
     # Editing the instructions or the reader context in Configurações writes a new summary.
     prompt = hashlib.sha1(system.encode()).hexdigest()[:12]
-    chave = f"resumo:{provedor}:{modelo_de(provedor)}:{p.casa}:{p.id}:{p.situacao}:{prompt}"
-    return Resumo(**await cached(chave, gerar))
+    return f"resumo:{provedor}:{modelo_de(provedor)}:{p.casa}:{p.id}:{p.situacao}:{prompt}"
+
+
+async def resumir_stream(p: Proposicao, com_leitor: bool = True) -> AsyncIterator[Evento]:
+    """`resumir` for the page, as events: "pensando" and "texto" while the model writes, then
+    {"tipo": "pronto", "resumo"} or {"tipo": "erro", "erro"}. Same cache; a cached summary comes as "pronto" alone.
+
+    Unlike `resumir`, two pages asking at once each generate their own; the last to finish is cached."""
+    provedor = provedor_ativo()
+    if not provedor:
+        yield {"tipo": "erro", "erro": "Nenhuma IA configurada."}
+        return
+    system, leitor = montar_system(com_leitor)
+    chave = _chave_cache(provedor, p, system)
+    antigo = cache.read(chave, config.CACHE_DIR)
+    if antigo and time.time() - antigo["at"] < cache.WEEK:
+        log.info("cache hit %s", chave)
+        yield {"tipo": "pronto", "resumo": Resumo(**antigo["value"]).model_dump()}
+        return
+
+    inicio = time.perf_counter()
+    log.info("gerando resumo de %s %s com %s (%s), em stream", p.casa, p.sigla, provedor, modelo_de(provedor))
+    try:
+        user = f"Resuma esta proposição:\n\n{contexto(p)}"
+        async for e in gerar_json_stream(provedor, system, user, SCHEMA_COM_LEITOR if leitor else SCHEMA):
+            if e["tipo"] != "fim":
+                yield e
+                continue
+            valor = {**validar(e["dados"], leitor), "modelo": e["modelo"], "geradoEm": datetime.now(UTC).isoformat()}
+            log.info("resumo de %s gerado por %s em %.1fs", p.sigla, e["modelo"], time.perf_counter() - inicio)
+            cache.write(chave, config.CACHE_DIR, valor)
+            yield {"tipo": "pronto", "resumo": Resumo(**valor).model_dump()}
+            return
+        raise ErroIA("outro", "A IA não terminou a resposta.")
+    except ErroIA as e:
+        log.warning("resumo de %s falhou (%s): %s", p.sigla, e.tipo, e.msg)
+        if antigo:
+            log.warning("usando o resumo antigo de %s", p.sigla)
+            yield {"tipo": "pronto", "resumo": Resumo(**antigo["value"]).model_dump()}
+        else:
+            yield {"tipo": "erro", "erro": mensagem(e, provedor)}
